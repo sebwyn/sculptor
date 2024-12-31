@@ -8,10 +8,10 @@ const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
 
 const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_swapchain.name,
-    vk.extensions.khr_portability_subset.name,
 };
 
 const optional_device_extensions = [_][*:0]const u8{
+    vk.extensions.khr_portability_subset.name,
 };
 
 const optional_instance_extensions = [_][*:0]const u8{
@@ -20,89 +20,83 @@ const optional_instance_extensions = [_][*:0]const u8{
     vk.extensions.ext_debug_utils.name,
 };
 
-const apis: []const vk.ApiInfo = &.{
-    .{
-        .base_commands = .{
-            .createInstance = true,
-            .enumerateInstanceExtensionProperties = true,
-            .getInstanceProcAddr = true,
-        },
-        .instance_commands = .{
-            .destroyInstance = true,
-            .createDevice = true,
-            .destroySurfaceKHR = true,
-            .enumeratePhysicalDevices = true,
-            .getPhysicalDeviceProperties = true,
-            .enumerateDeviceExtensionProperties = true,
-            .getPhysicalDeviceSurfaceFormatsKHR = true,
-            .getPhysicalDeviceSurfacePresentModesKHR = true,
-            .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
-            .getPhysicalDeviceQueueFamilyProperties = true,
-            .getPhysicalDeviceSurfaceSupportKHR = true,
-            .getPhysicalDeviceMemoryProperties = true,
-            .getDeviceProcAddr = true,
-        },
-        .device_commands = .{
-            .destroyDevice = true,
-            .getDeviceQueue = true,
-            .createSemaphore = true,
-            .createFence = true,
-            .createImageView = true,
-            .destroyImageView = true,
-            .destroySemaphore = true,
-            .destroyFence = true,
-            .getSwapchainImagesKHR = true,
-            .createSwapchainKHR = true,
-            .destroySwapchainKHR = true,
-            .acquireNextImageKHR = true,
-            .deviceWaitIdle = true,
-            .waitForFences = true,
-            .resetFences = true,
-            .queueSubmit = true,
-            .queuePresentKHR = true,
-            .createCommandPool = true,
-            .destroyCommandPool = true,
-            .allocateCommandBuffers = true,
-            .freeCommandBuffers = true,
-            .queueWaitIdle = true,
-            .createShaderModule = true,
-            .destroyShaderModule = true,
-            .createPipelineLayout = true,
-            .destroyPipelineLayout = true,
-            .createRenderPass = true,
-            .destroyRenderPass = true,
-            .createDescriptorSetLayout = true,
-            .destroyDescriptorSetLayout = true,
-            .createGraphicsPipelines = true,
-            .createDescriptorPool = true,
-            .destroyDescriptorPool = true,
-            .allocateDescriptorSets = true,
-            .updateDescriptorSets = true,
-            .destroyPipeline = true,
-            .createFramebuffer = true,
-            .destroyFramebuffer = true,
-            .beginCommandBuffer = true,
-            .endCommandBuffer = true,
-            .allocateMemory = true,
-            .freeMemory = true,
-            .createBuffer = true,
-            .destroyBuffer = true,
-            .getBufferMemoryRequirements = true,
-            .mapMemory = true,
-            .unmapMemory = true,
-            .bindBufferMemory = true,
-            .cmdBeginRenderPass = true,
-            .cmdEndRenderPass = true,
-            .cmdBindPipeline = true,
-            .cmdDraw = true,
-            .cmdSetViewport = true,
-            .cmdSetScissor = true,
-            .cmdBindVertexBuffers = true,
-            .cmdCopyBuffer = true,
-            .cmdBindDescriptorSets = true,
-        }
-    }
-};
+const apis: []const vk.ApiInfo = &.{.{ .base_commands = .{
+    .createInstance = true,
+    .enumerateInstanceExtensionProperties = true,
+    .getInstanceProcAddr = true,
+}, .instance_commands = .{
+    .destroyInstance = true,
+    .createDevice = true,
+    .destroySurfaceKHR = true,
+    .enumeratePhysicalDevices = true,
+    .getPhysicalDeviceProperties = true,
+    .enumerateDeviceExtensionProperties = true,
+    .getPhysicalDeviceSurfaceFormatsKHR = true,
+    .getPhysicalDeviceSurfacePresentModesKHR = true,
+    .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
+    .getPhysicalDeviceQueueFamilyProperties = true,
+    .getPhysicalDeviceSurfaceSupportKHR = true,
+    .getPhysicalDeviceMemoryProperties = true,
+    .getDeviceProcAddr = true,
+}, .device_commands = .{
+    .destroyDevice = true,
+    .getDeviceQueue = true,
+    .createSemaphore = true,
+    .createFence = true,
+    .createImageView = true,
+    .destroyImageView = true,
+    .destroySemaphore = true,
+    .destroyFence = true,
+    .getSwapchainImagesKHR = true,
+    .createSwapchainKHR = true,
+    .destroySwapchainKHR = true,
+    .acquireNextImageKHR = true,
+    .deviceWaitIdle = true,
+    .waitForFences = true,
+    .resetFences = true,
+    .queueSubmit = true,
+    .queuePresentKHR = true,
+    .createCommandPool = true,
+    .destroyCommandPool = true,
+    .allocateCommandBuffers = true,
+    .freeCommandBuffers = true,
+    .queueWaitIdle = true,
+    .createShaderModule = true,
+    .destroyShaderModule = true,
+    .createPipelineLayout = true,
+    .destroyPipelineLayout = true,
+    .createRenderPass = true,
+    .destroyRenderPass = true,
+    .createDescriptorSetLayout = true,
+    .destroyDescriptorSetLayout = true,
+    .createGraphicsPipelines = true,
+    .createDescriptorPool = true,
+    .destroyDescriptorPool = true,
+    .allocateDescriptorSets = true,
+    .updateDescriptorSets = true,
+    .destroyPipeline = true,
+    .createFramebuffer = true,
+    .destroyFramebuffer = true,
+    .beginCommandBuffer = true,
+    .endCommandBuffer = true,
+    .allocateMemory = true,
+    .freeMemory = true,
+    .createBuffer = true,
+    .destroyBuffer = true,
+    .getBufferMemoryRequirements = true,
+    .mapMemory = true,
+    .unmapMemory = true,
+    .bindBufferMemory = true,
+    .cmdBeginRenderPass = true,
+    .cmdEndRenderPass = true,
+    .cmdBindPipeline = true,
+    .cmdDraw = true,
+    .cmdSetViewport = true,
+    .cmdSetScissor = true,
+    .cmdBindVertexBuffers = true,
+    .cmdCopyBuffer = true,
+    .cmdBindDescriptorSets = true,
+} }};
 
 const BaseDispatch = vk.BaseWrapper(apis);
 const InstanceDispatch = vk.InstanceWrapper(apis);
@@ -164,30 +158,22 @@ pub const GraphicsContext = struct {
             .api_version = vk.makeApiVersion(0, 1, 1, 0),
         };
 
-        self.instance = try self.vkb.createInstance(&vk.InstanceCreateInfo{
-            .flags = if (builtin.os.tag == .macos) .{
-                .enumerate_portability_bit_khr = true,
-            } else .{},
-            .p_application_info = &app_info,
-            .enabled_layer_count = 1,
-            .pp_enabled_layer_names = &validation_layers,
-            .enabled_extension_count = @intCast(instance_extensions.items.len),
-            .pp_enabled_extension_names = @ptrCast(instance_extensions.items),
-            .p_next = &vk.DebugUtilsMessengerCreateInfoEXT{
-                .flags = .{},
-                .message_severity = .{
-                    .verbose_bit_ext = true,
-                    .warning_bit_ext = true,
-                    .error_bit_ext = true,
-                },
-                .message_type = .{
-                    .general_bit_ext = true,
-                    .validation_bit_ext = true,
-                    .performance_bit_ext = true,
-                },
-                .pfn_user_callback = debugCallback,
-            }
-        }, null);
+        self.instance = try self.vkb.createInstance(&vk.InstanceCreateInfo{ .flags = if (builtin.os.tag == .macos) .{
+            .enumerate_portability_bit_khr = true,
+        } else .{}, .p_application_info = &app_info, .enabled_layer_count = 1, .pp_enabled_layer_names = &validation_layers, .enabled_extension_count = @intCast(instance_extensions.items.len), .pp_enabled_extension_names = @ptrCast(instance_extensions.items), .p_next = &vk.DebugUtilsMessengerCreateInfoEXT{
+            .flags = .{},
+            .message_severity = .{
+                .verbose_bit_ext = true,
+                .warning_bit_ext = true,
+                .error_bit_ext = true,
+            },
+            .message_type = .{
+                .general_bit_ext = true,
+                .validation_bit_ext = true,
+                .performance_bit_ext = true,
+            },
+            .pfn_user_callback = debugCallback,
+        } }, null);
 
         self.vki = try InstanceDispatch.load(self.instance, self.vkb.dispatch.vkGetInstanceProcAddr);
         errdefer self.vki.destroyInstance(self.instance, null);

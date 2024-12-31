@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const SculptorBuildError = error{CouldNotFindVulkan};
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -36,7 +38,10 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    exe.linkSystemLibrary("vulkan");
+    const env = try std.process.getEnvMap(b.allocator);
+    const vulkan_sdk_path = try (env.get("VULKAN_SDK") orelse error.CouldNotFindVulkan);
+    exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = try std.fs.path.join(b.allocator, &[_][]const u8{ vulkan_sdk_path, "Lib" }) });
+    exe.linkSystemLibrary("vulkan-1");
 
     // Use mach-glfw
     const glfw_dep = b.dependency("mach-glfw", .{

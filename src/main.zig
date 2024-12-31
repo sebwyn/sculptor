@@ -35,26 +35,19 @@ const Vertex = struct {
     color: [3]f32,
 };
 
-
 const vertices = [_]Vertex{
     .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
-    .{ .pos = .{  1.0,  1.0 }, .color = .{ 0, 1, 0 } },
-    .{ .pos = .{ -1.0,  1.0 }, .color = .{ 0, 0, 1 } },
+    .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 1, 0 } },
+    .{ .pos = .{ -1.0, 1.0 }, .color = .{ 0, 0, 1 } },
     .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
-    .{ .pos = .{  1.0, -1.0 }, .color = .{ 0, 1, 0 } },
-    .{ .pos = .{  1.0,  1.0 }, .color = .{ 0, 0, 1 } },
+    .{ .pos = .{ 1.0, -1.0 }, .color = .{ 0, 1, 0 } },
+    .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 0, 1 } },
 };
 
 const UniformBuffer = struct {
     screen_size: [4]f32,
     camera_pos: [4]f32,
     near: [4]f32,
-};
-
-const uniforms = UniformBuffer{
-    .screen_size = .{ 1600.0, 1200.0, 0.0, 0.0 },
-    .camera_pos = .{ 0.0, 0.0, -10.0, 0.0 },
-    .near = .{ 1.0, 0, 0, 0.0},
 };
 
 /// Default GLFW error handling callback
@@ -88,13 +81,12 @@ pub fn main() !void {
     std.debug.print("Using device: {?s}\n", .{gc.props.device_name});
 
     var swapchain = try Swapchain.init(&gc, allocator, extent);
-    defer swapchain.deinit(); 
+    defer swapchain.deinit();
 
-    
     const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
         .binding_count = 1,
         .flags = .{},
-        .p_bindings = &.{ .{
+        .p_bindings = &.{.{
             .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
             .binding = 1,
             .descriptor_type = .uniform_buffer,
@@ -102,11 +94,11 @@ pub fn main() !void {
         }},
     }, null);
     defer gc.vkd.destroyDescriptorSetLayout(gc.dev, descriptor_set_layout, null);
-    
+
     const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
         .flags = .{},
         .set_layout_count = 1,
-        .p_set_layouts = &.{ descriptor_set_layout },
+        .p_set_layouts = &.{descriptor_set_layout},
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);
@@ -120,52 +112,39 @@ pub fn main() !void {
 
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
     defer destroyFramebuffers(&gc, allocator, framebuffers);
-    
 
     var uniform_buffers: []vk.Buffer = try allocator.alloc(vk.Buffer, framebuffers.len);
     defer allocator.free(uniform_buffers);
     var uniform_buffer_memories: []vk.DeviceMemory = try allocator.alloc(vk.DeviceMemory, framebuffers.len);
     defer allocator.free(uniform_buffer_memories);
+    var uniform_buffers_mapped: []*anyopaque = try allocator.alloc(*anyopaque, framebuffers.len);
     for (0..framebuffers.len) |i| {
-        uniform_buffers[i] = try gc.vkd.createBuffer(gc.dev, &.{
-            .flags = .{},
-            .size = @sizeOf(@TypeOf(uniforms)),
-            .usage = .{ .uniform_buffer_bit = true },
-            .sharing_mode = .exclusive
-        }, null);
-
+        uniform_buffers[i] = try gc.vkd.createBuffer(gc.dev, &.{ .flags = .{}, .size = @sizeOf(UniformBuffer), .usage = .{ .uniform_buffer_bit = true }, .sharing_mode = .exclusive }, null);
         const uniform_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, uniform_buffers[i]);
         uniform_buffer_memories[i] = try gc.allocate(uniform_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
         try gc.vkd.bindBufferMemory(gc.dev, uniform_buffers[i], uniform_buffer_memories[i], 0);
-
-        const uniform_data = try gc.vkd.mapMemory(gc.dev, uniform_buffer_memories[i], 0, vk.WHOLE_SIZE, .{});
-
-        const gpu_uniforms: [*]UniformBuffer = @ptrCast(@alignCast(uniform_data));
-        gpu_uniforms[0] = uniforms;
-        // @memcpy(gpu_uniforms, &uniforms);
+        uniform_buffers_mapped[i] = try gc.vkd.mapMemory(gc.dev, uniform_buffer_memories[i], 0, vk.WHOLE_SIZE, .{}) orelse return error.MemoryMapFailed;
     }
     defer for (0..framebuffers.len) |i| {
         gc.vkd.unmapMemory(gc.dev, uniform_buffer_memories[i]);
         gc.vkd.freeMemory(gc.dev, uniform_buffer_memories[i], null);
         gc.vkd.destroyBuffer(gc.dev, uniform_buffers[i], null);
     };
-    
 
-    const descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &vk.DescriptorPoolCreateInfo{
-        .pool_size_count = 1,
-        .max_sets = @intCast(framebuffers.len),
-        .p_pool_sizes = &.{ vk.DescriptorPoolSize{
+    const descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &vk.DescriptorPoolCreateInfo{ .pool_size_count = 1, .max_sets = @intCast(framebuffers.len), .p_pool_sizes = &.{
+        vk.DescriptorPoolSize{
             .type = .uniform_buffer,
             .descriptor_count = @intCast(framebuffers.len),
         },
-        }
-    }, null);
+    } }, null);
     defer gc.vkd.destroyDescriptorPool(gc.dev, descriptor_pool, null);
 
     var descriptor_set_layouts: []vk.DescriptorSetLayout = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
     defer allocator.free(descriptor_set_layouts);
-    for (0..framebuffers.len) |i| { descriptor_set_layouts[i] = descriptor_set_layout; }
-    
+    for (0..framebuffers.len) |i| {
+        descriptor_set_layouts[i] = descriptor_set_layout;
+    }
+
     const descriptor_sets: []vk.DescriptorSet = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
     defer allocator.free(descriptor_sets);
     try gc.vkd.allocateDescriptorSets(gc.dev, &vk.DescriptorSetAllocateInfo{
@@ -175,22 +154,7 @@ pub fn main() !void {
     }, descriptor_sets.ptr);
 
     for (0..framebuffers.len) |i| {
-        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{ 
-            vk.WriteDescriptorSet{
-                .descriptor_type = .uniform_buffer,
-                .dst_set = descriptor_sets[i],
-                .dst_binding = 1,
-                .dst_array_element = 0,
-                .descriptor_count = 1,
-                .p_buffer_info = &.{ vk.DescriptorBufferInfo{
-                    .buffer = uniform_buffers[i],
-                    .offset = 0,
-                    .range = @sizeOf(UniformBuffer)
-                }},
-                .p_image_info = &[_]vk.DescriptorImageInfo{ },
-                .p_texel_buffer_view = &[_]vk.BufferView{ }
-            }
-        }, 0, null);
+        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{vk.WriteDescriptorSet{ .descriptor_type = .uniform_buffer, .dst_set = descriptor_sets[i], .dst_binding = 1, .dst_array_element = 0, .descriptor_count = 1, .p_buffer_info = &.{vk.DescriptorBufferInfo{ .buffer = uniform_buffers[i], .offset = 0, .range = @sizeOf(UniformBuffer) }}, .p_image_info = &[_]vk.DescriptorImageInfo{}, .p_texel_buffer_view = &[_]vk.BufferView{} }}, 0, null);
     }
 
     const pool = try gc.vkd.createCommandPool(gc.dev, &.{
@@ -231,6 +195,16 @@ pub fn main() !void {
 
     while (!window.shouldClose()) {
         const cmdbuf = cmdbufs[swapchain.image_index];
+
+        const window_size = window.getSize();
+        const uniforms = UniformBuffer{
+            .screen_size = .{ @as(f32, @floatFromInt(window_size.width)), @as(f32, @floatFromInt(window_size.height)), 0.0, 0.0 },
+            .camera_pos = .{ 0.0, 0.0, -10.0, 0.0 },
+            .near = .{ 1.0, 0, 0, 0.0 },
+        };
+
+        const gpu_uniforms: [*]UniformBuffer = @ptrCast(@alignCast(uniform_buffers_mapped[swapchain.image_index]));
+        gpu_uniforms[0] = uniforms;
 
         const state = swapchain.present(cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
@@ -568,17 +542,16 @@ fn createPipeline(
             .logic_op_enable = vk.FALSE,
             .logic_op = .copy,
             .attachment_count = 1,
-            .p_attachments = 
-                @as([*]const vk.PipelineColorBlendAttachmentState, @ptrCast(&vk.PipelineColorBlendAttachmentState{
-                    .blend_enable = vk.FALSE,
-                    .src_color_blend_factor = .one,
-                    .dst_color_blend_factor = .zero,
-                    .color_blend_op = .add,
-                    .src_alpha_blend_factor = .one,
-                    .dst_alpha_blend_factor = .zero,
-                    .alpha_blend_op = .add,
-                    .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
-                })),
+            .p_attachments = @as([*]const vk.PipelineColorBlendAttachmentState, @ptrCast(&vk.PipelineColorBlendAttachmentState{
+                .blend_enable = vk.FALSE,
+                .src_color_blend_factor = .one,
+                .dst_color_blend_factor = .zero,
+                .color_blend_op = .add,
+                .src_alpha_blend_factor = .one,
+                .dst_alpha_blend_factor = .zero,
+                .alpha_blend_op = .add,
+                .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+            })),
             .blend_constants = [_]f32{ 0, 0, 0, 0 },
         },
         .p_dynamic_state = &vk.PipelineDynamicStateCreateInfo{
@@ -598,7 +571,7 @@ fn createPipeline(
         gc.dev,
         .null_handle,
         1,
-        @as([*]const vk.GraphicsPipelineCreateInfo, @ptrCast(&graphics_pipeline_create_info )),
+        @as([*]const vk.GraphicsPipelineCreateInfo, @ptrCast(&graphics_pipeline_create_info)),
         null,
         @as([*]vk.Pipeline, @ptrCast(&pipeline)),
     );
