@@ -28,8 +28,8 @@
             .hash = "122022ea6df16700e521078c20d7d01f894c6f967e6c6ce1ea166426b4fc61667de3",
         },
         .vulkan_headers = .{
-            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/d4a196d8c84e032d27f999adcea3075517c1c97f.tar.gz",
-            .hash = "1220e439f44d3a6ce1112d00d3002cb442f3806f8674dbbeb941398a2ec03e717c8f",
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/b379292b2ab6df5771ba9870d53cf8b2c9295daf.tar.gz",
+            .hash = "1220a11136d20a5580bac95fd7a4ed4f1c50c3e37a90350fa45334e0c2062008ce6c",
         },
         .vulkan_zig = .{
             .url = "https://github.com/Snektron/vulkan-zig/archive/5559cccea667a2c159354bdb99cc398c2d893a1b.tar.gz",

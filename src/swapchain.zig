@@ -21,6 +21,8 @@ pub const Swapchain = struct {
     image_index: u32,
     next_image_acquired: vk.Semaphore,
 
+    cleaned_up: bool = false,
+
     pub fn init(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D) !Swapchain {
         return try initRecycle(gc, allocator, extent, .null_handle);
     }
@@ -106,7 +108,9 @@ pub const Swapchain = struct {
     }
 
     pub fn deinit(self: Swapchain) void {
-        self.deinitExceptSwapchain();
+        if (!self.cleaned_up) {
+            self.deinitExceptSwapchain();
+        }
         self.gc.vkd.destroySwapchainKHR(self.gc.dev, self.handle, null);
     }
 
@@ -115,6 +119,7 @@ pub const Swapchain = struct {
         const allocator = self.allocator;
         const old_handle = self.handle;
         self.deinitExceptSwapchain();
+        self.cleaned_up = true;
         self.* = try initRecycle(gc, allocator, new_extent, old_handle);
     }
 
@@ -233,7 +238,7 @@ const SwapImage = struct {
         };
     }
 
-    fn deinit(self: SwapImage, gc: *const GraphicsContext) void {
+    fn deinit(self: *const SwapImage, gc: *const GraphicsContext) void {
         self.waitForFence(gc) catch return;
         gc.vkd.destroyImageView(gc.dev, self.view, null);
         gc.vkd.destroySemaphore(gc.dev, self.image_acquired, null);

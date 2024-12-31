@@ -4,15 +4,20 @@ const glfw = @import("mach-glfw");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 
+const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
+
 const required_device_extensions = [_][*:0]const u8{
-    vk.extensions.khr_swapchain.name
+    vk.extensions.khr_swapchain.name,
+    vk.extensions.khr_portability_subset.name,
 };
 
-const optional_device_extensions = [_][*:0]const u8{};
+const optional_device_extensions = [_][*:0]const u8{
+};
 
 const optional_instance_extensions = [_][*:0]const u8{
     vk.extensions.khr_get_physical_device_properties_2.name,
     vk.extensions.khr_portability_enumeration.name,
+    vk.extensions.ext_debug_utils.name,
 };
 
 const apis: []const vk.ApiInfo = &.{
@@ -69,6 +74,10 @@ const apis: []const vk.ApiInfo = &.{
             .createDescriptorSetLayout = true,
             .destroyDescriptorSetLayout = true,
             .createGraphicsPipelines = true,
+            .createDescriptorPool = true,
+            .destroyDescriptorPool = true,
+            .allocateDescriptorSets = true,
+            .updateDescriptorSets = true,
             .destroyPipeline = true,
             .createFramebuffer = true,
             .destroyFramebuffer = true,
@@ -90,6 +99,7 @@ const apis: []const vk.ApiInfo = &.{
             .cmdSetScissor = true,
             .cmdBindVertexBuffers = true,
             .cmdCopyBuffer = true,
+            .cmdBindDescriptorSets = true,
         }
     }
 };
@@ -159,10 +169,24 @@ pub const GraphicsContext = struct {
                 .enumerate_portability_bit_khr = true,
             } else .{},
             .p_application_info = &app_info,
-            .enabled_layer_count = 0,
-            .pp_enabled_layer_names = undefined,
+            .enabled_layer_count = 1,
+            .pp_enabled_layer_names = &validation_layers,
             .enabled_extension_count = @intCast(instance_extensions.items.len),
             .pp_enabled_extension_names = @ptrCast(instance_extensions.items),
+            .p_next = &vk.DebugUtilsMessengerCreateInfoEXT{
+                .flags = .{},
+                .message_severity = .{
+                    .verbose_bit_ext = true,
+                    .warning_bit_ext = true,
+                    .error_bit_ext = true,
+                },
+                .message_type = .{
+                    .general_bit_ext = true,
+                    .validation_bit_ext = true,
+                    .performance_bit_ext = true,
+                },
+                .pfn_user_callback = debugCallback,
+            }
         }, null);
 
         self.vki = try InstanceDispatch.load(self.instance, self.vkb.dispatch.vkGetInstanceProcAddr);
@@ -214,6 +238,13 @@ pub const GraphicsContext = struct {
         }, null);
     }
 };
+fn debugCallback(_: vk.DebugUtilsMessageSeverityFlagsEXT, _: vk.DebugUtilsMessageTypeFlagsEXT, p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, _: ?*anyopaque) callconv(vk.vulkan_call_conv) vk.Bool32 {
+    if (p_callback_data != null) {
+        std.log.debug("validation layer: {?s}", .{p_callback_data.?.p_message});
+    }
+
+    return vk.FALSE;
+}
 
 pub const Queue = struct {
     handle: vk.Queue,

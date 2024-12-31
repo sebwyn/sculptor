@@ -36,7 +36,6 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    // exe.addLibraryPath(b.path("dependencies/VulkanSDK/1.3.290.0/macOS/lib/"));
     exe.linkSystemLibrary("vulkan");
 
     // Use mach-glfw
