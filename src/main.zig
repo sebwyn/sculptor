@@ -195,8 +195,8 @@ pub fn main() !void {
 
     while (!window.shouldClose()) {
         const cmdbuf = cmdbufs[swapchain.image_index];
-
-        const window_size = window.getSize();
+        
+        const window_size = window.getFramebufferSize();
         const uniforms = UniformBuffer{
             .screen_size = .{ @as(f32, @floatFromInt(window_size.width)), @as(f32, @floatFromInt(window_size.height)), 0.0, 0.0 },
             .camera_pos = .{ 0.0, 0.0, -10.0, 0.0 },

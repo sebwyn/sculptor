@@ -6,13 +6,19 @@ const Allocator = std.mem.Allocator;
 
 const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
 
-const required_device_extensions = [_][*:0]const u8{
-    vk.extensions.khr_swapchain.name,
-};
+fn requiredDeviceExtensions(comptime os: std.Target.Os) []const [*:0]const u8 {
+    return switch (os.tag) {
+        .macos => &[_][*:0]const u8{
+            vk.extensions.khr_swapchain.name,
+            vk.extensions.khr_portability_subset.name,
+        },
+        else => &[_][*:0]const u8{
+            vk.extensions.khr_swapchain.name,
+        },
+    };
+}
 
-const optional_device_extensions = [_][*:0]const u8{
-    vk.extensions.khr_portability_subset.name,
-};
+const optional_device_extensions = [_][*:0]const u8{};
 
 const optional_instance_extensions = [_][*:0]const u8{
     vk.extensions.khr_get_physical_device_properties_2.name,
@@ -275,6 +281,8 @@ fn initializeCandidate(allocator: Allocator, vki: InstanceDispatch, candidate: D
     else
         2; // amd
 
+    const required_device_extensions = comptime requiredDeviceExtensions(builtin.os);
+
     var device_extensions = try std.ArrayList([*:0]const u8).initCapacity(allocator, required_device_extensions.len);
     defer device_extensions.deinit();
 
@@ -425,6 +433,8 @@ fn checkExtensionSupport(
     defer allocator.free(propsv);
 
     _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, propsv.ptr);
+
+    const required_device_extensions = comptime requiredDeviceExtensions(builtin.os);
 
     for (required_device_extensions) |ext| {
         for (propsv) |props| {

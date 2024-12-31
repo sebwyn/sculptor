@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const SculptorBuildError = error{CouldNotFindVulkan};
@@ -41,7 +42,12 @@ pub fn build(b: *std.Build) !void {
     const env = try std.process.getEnvMap(b.allocator);
     const vulkan_sdk_path = try (env.get("VULKAN_SDK") orelse error.CouldNotFindVulkan);
     exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = try std.fs.path.join(b.allocator, &[_][]const u8{ vulkan_sdk_path, "Lib" }) });
-    exe.linkSystemLibrary("vulkan-1");
+    
+    const vulkan_library_name = switch (builtin.os.tag) {
+        .windows => "vulkan-1",
+        else => "vulkan"
+    };
+    exe.linkSystemLibrary(vulkan_library_name);
 
     // Use mach-glfw
     const glfw_dep = b.dependency("mach-glfw", .{
