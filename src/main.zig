@@ -4,7 +4,7 @@ const vk = @import("vulkan");
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const triangle_vert = @embedFile("triangle_vert");
-const triangle_frag = @embedFile("triangle_frag");
+const triangle_frag = @embedFile("aabb_raycaster_frag");
 const Allocator = std.mem.Allocator;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
@@ -35,10 +35,26 @@ const Vertex = struct {
     color: [3]f32,
 };
 
+
 const vertices = [_]Vertex{
-    .{ .pos = .{ 0, -0.5 }, .color = .{ 1, 0, 0 } },
-    .{ .pos = .{ 0.5, 0.5 }, .color = .{ 0, 1, 0 } },
-    .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0, 0, 1 } },
+    .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
+    .{ .pos = .{  1.0,  1.0 }, .color = .{ 0, 1, 0 } },
+    .{ .pos = .{ -1.0,  1.0 }, .color = .{ 0, 0, 1 } },
+    .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
+    .{ .pos = .{  1.0, -1.0 }, .color = .{ 0, 1, 0 } },
+    .{ .pos = .{  1.0,  1.0 }, .color = .{ 0, 0, 1 } },
+};
+
+const UniformBuffer = struct {
+    screen_size: [2]f32,
+    camera_pos: [3]f32,
+    near: f32,
+};
+
+const uniforms = UniformBuffer{
+    .screen_size = .{ 800, 600 },
+    .camera_pos = .{ 0.1, 0.5, -100.0 },
+    .near = 1.0,
 };
 
 /// Default GLFW error handling callback
@@ -74,10 +90,22 @@ pub fn main() !void {
     var swapchain = try Swapchain.init(&gc, allocator, extent);
     defer swapchain.deinit();
 
+    const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
+        .binding_count = 1,
+        .flags = .{},
+        .p_bindings = &.{ .{
+            .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+            .binding = 0,
+            .descriptor_type = .uniform_buffer,
+            .descriptor_count = 1,
+        }},
+    }, null);
+    defer gc.vkd.destroyDescriptorSetLayout(gc.dev, descriptor_set_layout, null);
+    
     const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
         .flags = .{},
-        .set_layout_count = 0,
-        .p_set_layouts = undefined,
+        .set_layout_count = 1,
+        .p_set_layouts = &.{ descriptor_set_layout },
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);
@@ -97,6 +125,23 @@ pub fn main() !void {
         .queue_family_index = gc.graphics_queue.family,
     }, null);
     defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
+    
+
+    const uniform_buffer = try gc.vkd.createBuffer(gc.dev, &.{
+        .flags = .{},
+        .size = @sizeOf(@TypeOf(uniforms)),
+        .usage = .{ .uniform_buffer_bit = true },
+        .sharing_mode = .concurrent
+    }, null);
+    
+    const uniform_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, uniform_buffer);
+    const uniform_memory = try gc.allocate(uniform_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+    defer gc.vkd.freeMemory(gc.dev, uniform_memory, null);
+    const uniform_data = try gc.vkd.mapMemory(gc.dev, uniform_memory, 0, vk.WHOLE_SIZE, .{});
+    defer gc.vkd.unmapMemory(gc.dev, uniform_memory);
+    
+    const gpu_uniforms: [*]UniformBuffer = @ptrCast(@alignCast(uniform_data));
+    gpu_uniforms[0] = uniforms;
 
     const buffer = try gc.vkd.createBuffer(gc.dev, &.{
         .flags = .{},
