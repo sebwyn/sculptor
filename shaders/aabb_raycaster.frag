@@ -4,12 +4,13 @@ const float PI = 3.14159265;
 
 layout(location=0) out vec4 f_color;
 
-layout(binding=1) uniform uniform_buffer {
+layout(binding=0) uniform uniform_buffer {
   mat4x4 view;
   mat4x4 proj;
   vec2 screen_size;
 } uniforms; 
 
+layout(binding=1) uniform sampler3D voxels;
 
 float circle(vec3 sphere_center, float radius, vec3 pos) {
   return distance(pos, sphere_center) - radius;
@@ -57,6 +58,6 @@ void main() {
   vec3 camera_pos = inverse(uniforms.view)[3].xyz;
   vec3 ray = normalize(worldspace_near - camera_pos);
   
-  f_color = raymarch(camera_pos, ray);
+  f_color = vec4(texture(voxels, vec3((projected_near.x + 1)/2, (projected_near.y + 1)/2, 0.5)).r);
 }
 

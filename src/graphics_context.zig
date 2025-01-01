@@ -114,7 +114,7 @@ const apis: []const vk.ApiInfo = &.{.{
         .createSampler = true,
         .destroySampler = true,
         .cmdCopyBufferToImage = true,
-        // .transitionImageLayoutEXT = true,
+        .cmdPipelineBarrier = true,
     },
 }};
 
@@ -278,13 +278,51 @@ pub const GraphicsContext = struct {
         self.vkd.freeCommandBuffers(self.dev, pool, 1, @ptrCast(&command_buffer));
     }
 
-    pub fn copyBuffer(self: GraphicsContext, pool: vk.CommandPool, src: vk.Buffer, dst: vk.Buffer, size: vk.DeviceSize) !void {
-        const cmdbuf = try self.beginSingleTimeCommands(pool);
+    pub fn transitionImageLayout(
+        self: GraphicsContext,
+        command_buffer: vk.CommandBuffer,
+        image: vk.Image,
+        subresource_range: vk.ImageSubresourceRange,
+        old_layout: vk.ImageLayout,
+        new_layout: vk.ImageLayout
+    ) !void {
+        var barrier: vk.ImageMemoryBarrier = .{
+            .old_layout = old_layout,
+            .new_layout = new_layout,
+            .src_queue_family_index = self.graphics_queue.family,   
+            .dst_queue_family_index = self.graphics_queue.family,   
+            .image = image,
+            .subresource_range = subresource_range,
+            .src_access_mask = .{ .shader_read_bit =  true },
+            .dst_access_mask = .{ .shader_read_bit =  true },
+        };
 
-        const region = vk.BufferCopy{ .src_offset = 0, .dst_offset = 0, .size = size };
-        self.vkd.cmdCopyBuffer(cmdbuf, src, dst, 1, @ptrCast(&region));
+        var source_stage: ?vk.PipelineStageFlags = null;
+        var destination_stage: ?vk.PipelineStageFlags = null;
+        if (old_layout == .undefined and new_layout == .transfer_dst_optimal) {
+            barrier.src_access_mask = .{};
+            barrier.dst_access_mask = .{ .transfer_write_bit = true };
 
-        try self.endSingleTimeCommands(pool, cmdbuf, self.graphics_queue.handle);
+            source_stage = .{ .top_of_pipe_bit =  true};
+            destination_stage = .{ .transfer_bit =  true };
+        } else if (old_layout == .transfer_dst_optimal and new_layout == .shader_read_only_optimal) {
+            barrier.src_access_mask = .{ .transfer_write_bit = true };
+            barrier.dst_access_mask = .{ .shader_read_bit =  true };
+            source_stage = .{ .transfer_bit =  true };
+            destination_stage = .{ .fragment_shader_bit = true };
+        } else {
+            return error.Unknown;
+        }
+
+        self.vkd.cmdPipelineBarrier(
+            command_buffer, 
+            source_stage.?, 
+            destination_stage.?, 
+            .{ .by_region_bit =  true },
+            0, null,
+            0, null,
+            1, @ptrCast(&barrier)
+        );
     }
 
     pub fn Buffer(Data: type) type {
@@ -296,7 +334,6 @@ pub const GraphicsContext = struct {
 
             const Self = @This();
             pub fn getBufferInfo(self: *const Self) vk.DescriptorBufferInfo {
-                std.debug.print("Buffer takes up {d} * {d} bytes\n", .{ @sizeOf(Data), self.length });
                 return vk.DescriptorBufferInfo{ .buffer = self.vk_handle, .offset = 0, .range = @sizeOf(Data) * @as(u64, self.length) };
             }
             
@@ -324,7 +361,6 @@ pub const GraphicsContext = struct {
             }
 
             pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
-                std.debug.print("Destroying buffer object\n", .{});
                 if (self.data_ptr) |_| { gc.vkd.unmapMemory(gc.dev, self.memory); }
                 gc.vkd.freeMemory(gc.dev, self.memory, null);
                 gc.vkd.destroyBuffer(gc.dev, self.vk_handle, null);
@@ -350,7 +386,6 @@ pub const GraphicsContext = struct {
 
         try self.vkd.bindBufferMemory(self.dev, buffer, memory, 0);
         
-        std.debug.print("Creating buffer of length: {d}\n", .{ length });
         return Buffer(T) {
             .vk_handle = buffer,
             .memory = memory,
@@ -358,10 +393,19 @@ pub const GraphicsContext = struct {
         };
     }
 
+    pub fn copyBuffer(self: GraphicsContext, pool: vk.CommandPool, src: vk.Buffer, dst: vk.Buffer, size: vk.DeviceSize) !void {
+        const cmdbuf = try self.beginSingleTimeCommands(pool);
+
+        const region = vk.BufferCopy{ .src_offset = 0, .dst_offset = 0, .size = size };
+        self.vkd.cmdCopyBuffer(cmdbuf, src, dst, 1, @ptrCast(&region));
+
+        try self.endSingleTimeCommands(pool, cmdbuf, self.graphics_queue.handle);
+    }
+
+
     pub fn writeStagingBuffer(self: GraphicsContext, comptime T: type, data: []const T) !Buffer(T) {
         const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
         const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
-
         var buffer = try self.allocateBuffer(T, data.len, usage_flags, memory_properties);
         try buffer.write(&self, data);
 

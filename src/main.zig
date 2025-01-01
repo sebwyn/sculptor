@@ -102,7 +102,7 @@ const Texture3d = struct {
             .max_anisotropy = 1.0,
             .anisotropy_enable = @intFromBool(false),
             .border_color = .int_transparent_black,
-            .unnormalized_coordinates = @intFromBool(true),
+            .unnormalized_coordinates = @intFromBool(false),
         };
         const sampler = try gc.vkd.createSampler(gc.dev, &sampler_create_info, null);
         errdefer gc.vkd.destroySampler(gc.dev, sampler, null);
@@ -144,7 +144,7 @@ const Texture3d = struct {
         }
 
         const staging_buffer = try gc.writeStagingBuffer(u8, data);
-        defer staging_buffer.deinit();
+        defer staging_buffer.deinit(gc);
 
         const command_buffer = try gc.beginSingleTimeCommands(pool);
 
@@ -156,13 +156,7 @@ const Texture3d = struct {
             .level_count = 1,
         };
 
-        const write_image_layout_transition: vk.HostImageLayoutTransitionInfoEXT = .{
-            .image = self.image,
-            .subresource_range = subresource_range,
-            .old_layout = self.image_layout,
-            .new_layout = .transfer_dst_optimal,
-        };
-        try gc.vkd.transitionImageLayoutEXT(gc.dev, 1, @ptrCast(&write_image_layout_transition));
+        try gc.transitionImageLayout(command_buffer, self.image, subresource_range, .undefined, .transfer_dst_optimal);
 
         const buffer_image_copy: vk.BufferImageCopy = .{
             .image_subresource = .{
@@ -183,23 +177,16 @@ const Texture3d = struct {
         };
         gc.vkd.cmdCopyBufferToImage(command_buffer, staging_buffer.vk_handle, self.image, .transfer_dst_optimal, 1, @ptrCast(&buffer_image_copy));
 
-        self.image_layout = .shader_read_only_optimal;
-        const shader_read_image_transition: vk.HostImageLayoutTransitionInfoEXT = .{
-            .image = self.image,
-            .subresource_range = subresource_range,
-            .old_layout = .transfer_dst_optimal,
-            .new_layout = self.image_layout,
-        };
-        try gc.vkd.transitionImageLayoutEXT(gc.dev, 1, @ptrCast(&shader_read_image_transition));
+        try gc.transitionImageLayout(command_buffer, self.image, subresource_range, .transfer_dst_optimal, .shader_read_only_optimal);
 
         try gc.endSingleTimeCommands(pool, command_buffer, gc.graphics_queue.handle);
     }
 
     pub fn deinit(self: Texture3d, gc: *const GraphicsContext) void {
         gc.vkd.destroyImageView(gc.dev, self.view, null);
+        gc.vkd.destroyImage(gc.dev, self.image, null);
         gc.vkd.destroySampler(gc.dev, self.sampler, null);
         gc.vkd.freeMemory(gc.dev, self.memory, null);
-        gc.vkd.destroyImage(gc.dev, self.image, null);
     }
 };
 
@@ -252,16 +239,24 @@ pub fn main() !void {
 
     var swapchain = try Swapchain.init(&gc, allocator, extent);
     defer swapchain.deinit();
-
+    
     const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
-        .binding_count = 1,
+        .binding_count = 2,
         .flags = .{},
-        .p_bindings = &.{.{
-            .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
-            .binding = 1,
-            .descriptor_type = .uniform_buffer,
-            .descriptor_count = 1,
-        }},
+        .p_bindings = &.{
+            .{
+                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                .binding = 0,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+            },
+            .{
+                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                .binding = 1,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+            }
+        },
     }, null);
     defer gc.vkd.destroyDescriptorSetLayout(gc.dev, descriptor_set_layout, null);
 
@@ -283,6 +278,30 @@ pub fn main() !void {
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
     defer destroyFramebuffers(&gc, allocator, framebuffers);
 
+    const pool = try gc.vkd.createCommandPool(gc.dev, &.{
+        .flags = .{},
+        .queue_family_index = gc.graphics_queue.family,
+    }, null);
+    defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
+
+    var voxels = try Texture3d.init(&gc, 16, 16, 16);
+    defer voxels.deinit(&gc);
+    
+    var voxel_data: [16 * 16 * 16]u8 = undefined;
+    for (0..16) |z| {
+        for (0..16) |y| {
+            for (0..16) |x| {
+                const texture_index = 16 * 16 * z + 16 * y + x;
+                const xf = @as(f32, @floatFromInt(x)) + 0.5 - 8;
+                const yf = @as(f32, @floatFromInt(y)) + 0.5 - 8;
+                const zf = @as(f32, @floatFromInt(z)) + 0.5 - 8;
+                const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
+                voxel_data[texture_index] = 255 * @as(u8, @intFromBool(dist_from_origin < 4));
+            }
+        }
+    }
+
+
     var initialized_uniform_buffers: usize = 0;
     var uniform_buffers = try allocator.alloc(GraphicsContext.Buffer(Camera), framebuffers.len);
     defer allocator.free(uniform_buffers);
@@ -298,19 +317,19 @@ pub fn main() !void {
         initialized_uniform_buffers += 1;
     }
 
-    const descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &vk.DescriptorPoolCreateInfo{ .pool_size_count = 1, .max_sets = @intCast(framebuffers.len), .p_pool_sizes = &.{
-        vk.DescriptorPoolSize{
-            .type = .uniform_buffer,
-            .descriptor_count = @intCast(framebuffers.len),
-        },
-    } }, null);
+    const camera_descriptor_size: vk.DescriptorPoolSize =  .{ .type = .uniform_buffer, .descriptor_count = @intCast(framebuffers.len) };
+    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = @intCast(framebuffers.len) };
+    const descriptor_pool_info: vk.DescriptorPoolCreateInfo = .{  
+        .max_sets = @intCast(framebuffers.len),
+        .pool_size_count = 2,
+        .p_pool_sizes = &.{ camera_descriptor_size, texture_descriptor_size } 
+    };
+    const descriptor_pool = try gc.vkd.createDescriptorPool( gc.dev, &descriptor_pool_info, null);
     defer gc.vkd.destroyDescriptorPool(gc.dev, descriptor_pool, null);
 
     var descriptor_set_layouts: []vk.DescriptorSetLayout = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
     defer allocator.free(descriptor_set_layouts);
-    for (0..framebuffers.len) |i| {
-        descriptor_set_layouts[i] = descriptor_set_layout;
-    }
+    for (0..framebuffers.len) |i| { descriptor_set_layouts[i] = descriptor_set_layout; }
 
     const descriptor_sets: []vk.DescriptorSet = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
     defer allocator.free(descriptor_sets);
@@ -322,38 +341,36 @@ pub fn main() !void {
     }, descriptor_sets.ptr);
 
     for (0..framebuffers.len) |i| {
-        const write_descriptor = vk.WriteDescriptorSet{ .descriptor_type = .uniform_buffer, .dst_set = descriptor_sets[i], .dst_binding = 1, .dst_array_element = 0, .descriptor_count = 1, .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()}, .p_image_info = &[_]vk.DescriptorImageInfo{}, .p_texel_buffer_view = &[_]vk.BufferView{} };
-        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{write_descriptor}, 0, null);
+        const camera_write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .uniform_buffer,
+            .dst_set = descriptor_sets[i],
+            .dst_binding = 0,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()},
+            .p_image_info = &[_]vk.DescriptorImageInfo{},
+            .p_texel_buffer_view = &[_]vk.BufferView{} 
+        };
+        const texture_write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .combined_image_sampler,
+            .dst_set = descriptor_sets[i],
+            .dst_binding = 1,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()},
+            .p_image_info = @ptrCast(&voxels.descriptor),
+            .p_texel_buffer_view = @ptrCast(&voxels.view),
+        };
+        gc.vkd.updateDescriptorSets(gc.dev, 2, &.{ camera_write_descriptor, texture_write_descriptor }, 0, null);
     }
 
-    const pool = try gc.vkd.createCommandPool(gc.dev, &.{
-        .flags = .{},
-        .queue_family_index = gc.graphics_queue.family,
-    }, null);
-    defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
+    try voxels.write(&gc, pool, &voxel_data);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
 
     try uploadVertices(&gc, pool, vertex_buffer);
 
-    // var voxels = try Texture3d.init(&gc, 16, 16, 16);
-    // defer voxels.deinit(&gc);
-    //
-    // var voxel_data: [16 * 16 * 16]u8 = undefined;
-    // for (0..16) |z| {
-    //     for (0..16) |y| {
-    //         for (0..16) |x| {
-    //             const xf = @as(f32, @floatFromInt(x)) + 0.5;
-    //             const yf = @as(f32, @floatFromInt(y)) + 0.5;
-    //             const zf = @as(f32, @floatFromInt(z)) + 0.5;
-    //             const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
-    //             voxel_data[16 * 16 * z + 16 * y + x] = @intFromBool(dist_from_origin < 3);
-    //         }
-    //     }
-    // }
-    //
-    // try voxels.write(&gc, pool, &voxel_data);
 
     var cmdbufs = try createCommandBuffers(
         &gc,
