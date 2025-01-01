@@ -203,12 +203,21 @@ pub fn main() !void {
         framebuffers,
     );
     defer destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
-
+    
+    const start_time = std.time.milliTimestamp();
     while (!window.shouldClose()) {
 
         const cmdbuf = cmdbufs[swapchain.image_index];
+        
+        const current_time = std.time.milliTimestamp();
+        const angle: f32 = (2 * PI) * @as(f32, @floatFromInt(current_time - start_time)) / (1000 * 60);
+        
+        const x = 10*std.math.cos(angle);
+        const z = 10*std.math.sin(angle);
+        const y = 3*std.math.sin(4*angle);
 
-        const camera_position = zlm.Vec3.new(-10.0, 0.0, -10.0);
+        const target = zlm.Vec3.new(0.0, 0.0, 0.0);
+        const camera_position = zlm.Vec3.new(x, y, z);
 
         const window_size = window.getFramebufferSize();
         const window_width = @as(f32, @floatFromInt(window_size.width));
@@ -217,7 +226,7 @@ pub fn main() !void {
         var proj_matrix = zlm.Mat4.createPerspective((PI / 180.0) * 120.0, aspect_ratio, 1, 1000);
         proj_matrix.fields[2][2] *= -1;
         const camera = Camera{
-            .view_matrix = zlm.Mat4.createLook(camera_position, zlm.Vec3.new(0.0, 0.0, 1.0).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0)),
+            .view_matrix = zlm.Mat4.createLook(camera_position, (target.sub(camera_position)).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0)),
             .proj_matrix = proj_matrix, 
             .screen_size = .{ window_width, window_height, 0.0, 0.0 }
         };

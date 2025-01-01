@@ -28,7 +28,7 @@ vec3 calcNormal(vec3 p) { // for function f(p)
 }
 
 vec4 raymarch(vec3 pos, vec3 ray) {
-  const vec3 light_pos = vec3(-5, 0, 0);
+  const vec3 light_pos = vec3(-5, 5, 5);
   const vec3 light_color = vec3(1.0);
 
   int i = 0;
