@@ -11,6 +11,7 @@ fn requiredDeviceExtensions(comptime os: std.Target.Os) []const [*:0]const u8 {
         .macos => &[_][*:0]const u8{
             vk.extensions.khr_swapchain.name,
             vk.extensions.khr_portability_subset.name,
+            vk.extensions.ext_image_robustness.name,
         },
         else => &[_][*:0]const u8{
             vk.extensions.khr_swapchain.name,
@@ -26,83 +27,96 @@ const optional_instance_extensions = [_][*:0]const u8{
     vk.extensions.ext_debug_utils.name,
 };
 
-const apis: []const vk.ApiInfo = &.{.{ .base_commands = .{
-    .createInstance = true,
-    .enumerateInstanceExtensionProperties = true,
-    .getInstanceProcAddr = true,
-}, .instance_commands = .{
-    .destroyInstance = true,
-    .createDevice = true,
-    .destroySurfaceKHR = true,
-    .enumeratePhysicalDevices = true,
-    .getPhysicalDeviceProperties = true,
-    .enumerateDeviceExtensionProperties = true,
-    .getPhysicalDeviceSurfaceFormatsKHR = true,
-    .getPhysicalDeviceSurfacePresentModesKHR = true,
-    .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
-    .getPhysicalDeviceQueueFamilyProperties = true,
-    .getPhysicalDeviceSurfaceSupportKHR = true,
-    .getPhysicalDeviceMemoryProperties = true,
-    .getDeviceProcAddr = true,
-}, .device_commands = .{
-    .destroyDevice = true,
-    .getDeviceQueue = true,
-    .createSemaphore = true,
-    .createFence = true,
-    .createImageView = true,
-    .destroyImageView = true,
-    .destroySemaphore = true,
-    .destroyFence = true,
-    .getSwapchainImagesKHR = true,
-    .createSwapchainKHR = true,
-    .destroySwapchainKHR = true,
-    .acquireNextImageKHR = true,
-    .deviceWaitIdle = true,
-    .waitForFences = true,
-    .resetFences = true,
-    .queueSubmit = true,
-    .queuePresentKHR = true,
-    .createCommandPool = true,
-    .destroyCommandPool = true,
-    .allocateCommandBuffers = true,
-    .freeCommandBuffers = true,
-    .queueWaitIdle = true,
-    .createShaderModule = true,
-    .destroyShaderModule = true,
-    .createPipelineLayout = true,
-    .destroyPipelineLayout = true,
-    .createRenderPass = true,
-    .destroyRenderPass = true,
-    .createDescriptorSetLayout = true,
-    .destroyDescriptorSetLayout = true,
-    .createGraphicsPipelines = true,
-    .createDescriptorPool = true,
-    .destroyDescriptorPool = true,
-    .allocateDescriptorSets = true,
-    .updateDescriptorSets = true,
-    .destroyPipeline = true,
-    .createFramebuffer = true,
-    .destroyFramebuffer = true,
-    .beginCommandBuffer = true,
-    .endCommandBuffer = true,
-    .allocateMemory = true,
-    .freeMemory = true,
-    .createBuffer = true,
-    .destroyBuffer = true,
-    .getBufferMemoryRequirements = true,
-    .mapMemory = true,
-    .unmapMemory = true,
-    .bindBufferMemory = true,
-    .cmdBeginRenderPass = true,
-    .cmdEndRenderPass = true,
-    .cmdBindPipeline = true,
-    .cmdDraw = true,
-    .cmdSetViewport = true,
-    .cmdSetScissor = true,
-    .cmdBindVertexBuffers = true,
-    .cmdCopyBuffer = true,
-    .cmdBindDescriptorSets = true,
-} }};
+const apis: []const vk.ApiInfo = &.{.{
+    .base_commands = .{
+        .createInstance = true,
+        .enumerateInstanceExtensionProperties = true,
+        .getInstanceProcAddr = true,
+    },
+    .instance_commands = .{
+        .destroyInstance = true,
+        .createDevice = true,
+        .destroySurfaceKHR = true,
+        .enumeratePhysicalDevices = true,
+        .getPhysicalDeviceProperties = true,
+        .enumerateDeviceExtensionProperties = true,
+        .getPhysicalDeviceSurfaceFormatsKHR = true,
+        .getPhysicalDeviceSurfacePresentModesKHR = true,
+        .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
+        .getPhysicalDeviceQueueFamilyProperties = true,
+        .getPhysicalDeviceSurfaceSupportKHR = true,
+        .getPhysicalDeviceMemoryProperties = true,
+        .getDeviceProcAddr = true,
+        .getPhysicalDeviceFormatProperties = true,
+    },
+    .device_commands = .{
+        .destroyDevice = true,
+        .getDeviceQueue = true,
+        .createSemaphore = true,
+        .createFence = true,
+        .createImageView = true,
+        .destroyImageView = true,
+        .destroySemaphore = true,
+        .destroyFence = true,
+        .getSwapchainImagesKHR = true,
+        .createSwapchainKHR = true,
+        .destroySwapchainKHR = true,
+        .acquireNextImageKHR = true,
+        .deviceWaitIdle = true,
+        .waitForFences = true,
+        .resetFences = true,
+        .queueSubmit = true,
+        .queuePresentKHR = true,
+        .createCommandPool = true,
+        .destroyCommandPool = true,
+        .allocateCommandBuffers = true,
+        .freeCommandBuffers = true,
+        .queueWaitIdle = true,
+        .createShaderModule = true,
+        .destroyShaderModule = true,
+        .createPipelineLayout = true,
+        .destroyPipelineLayout = true,
+        .createRenderPass = true,
+        .destroyRenderPass = true,
+        .createDescriptorSetLayout = true,
+        .destroyDescriptorSetLayout = true,
+        .createGraphicsPipelines = true,
+        .createDescriptorPool = true,
+        .destroyDescriptorPool = true,
+        .allocateDescriptorSets = true,
+        .updateDescriptorSets = true,
+        .destroyPipeline = true,
+        .createFramebuffer = true,
+        .destroyFramebuffer = true,
+        .beginCommandBuffer = true,
+        .endCommandBuffer = true,
+        .allocateMemory = true,
+        .freeMemory = true,
+        .createBuffer = true,
+        .destroyBuffer = true,
+        .getBufferMemoryRequirements = true,
+        .mapMemory = true,
+        .unmapMemory = true,
+        .bindBufferMemory = true,
+        .cmdBeginRenderPass = true,
+        .cmdEndRenderPass = true,
+        .cmdBindPipeline = true,
+        .cmdDraw = true,
+        .cmdSetViewport = true,
+        .cmdSetScissor = true,
+        .cmdBindVertexBuffers = true,
+        .cmdCopyBuffer = true,
+        .cmdBindDescriptorSets = true,
+        .createImage = true,
+        .destroyImage = true,
+        .bindImageMemory = true,
+        .getImageMemoryRequirements = true,
+        .createSampler = true,
+        .destroySampler = true,
+        .cmdCopyBufferToImage = true,
+        // .transitionImageLayoutEXT = true,
+    },
+}};
 
 const BaseDispatch = vk.BaseWrapper(apis);
 const InstanceDispatch = vk.InstanceWrapper(apis);
@@ -228,6 +242,130 @@ pub const GraphicsContext = struct {
             .allocation_size = requirements.size,
             .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
         }, null);
+    }
+
+    pub fn beginSingleTimeCommands(self: GraphicsContext, pool: vk.CommandPool) !vk.CommandBuffer {
+        const command_buffer_info: vk.CommandBufferAllocateInfo = .{
+            .command_pool = pool,
+            .level = .primary,
+            .command_buffer_count = 1,
+        };
+
+        var command_buffer: vk.CommandBuffer = undefined;
+        try self.vkd.allocateCommandBuffers(self.dev, &command_buffer_info, @ptrCast(&command_buffer));
+
+        const command_buf_begin_info: vk.CommandBufferBeginInfo = .{ .flags = .{ .one_time_submit_bit = true } };
+        try self.vkd.beginCommandBuffer(command_buffer, &command_buf_begin_info);
+
+        return command_buffer;
+    }
+
+    pub fn endSingleTimeCommands(self: GraphicsContext, pool: vk.CommandPool, command_buffer: vk.CommandBuffer, queue: vk.Queue) !void {
+        try self.vkd.endCommandBuffer(command_buffer);
+
+        const submit_command_info = vk.SubmitInfo{
+            .wait_semaphore_count = 0,
+            .p_wait_semaphores = undefined,
+            .p_wait_dst_stage_mask = undefined,
+            .command_buffer_count = 1,
+            .p_command_buffers = @ptrCast(&command_buffer),
+            .signal_semaphore_count = 0,
+            .p_signal_semaphores = undefined,
+        };
+        try self.vkd.queueSubmit(queue, 1, @ptrCast(&submit_command_info), .null_handle);
+        try self.vkd.queueWaitIdle(queue);
+
+        self.vkd.freeCommandBuffers(self.dev, pool, 1, @ptrCast(&command_buffer));
+    }
+
+    pub fn copyBuffer(self: GraphicsContext, pool: vk.CommandPool, src: vk.Buffer, dst: vk.Buffer, size: vk.DeviceSize) !void {
+        const cmdbuf = try self.beginSingleTimeCommands(pool);
+
+        const region = vk.BufferCopy{ .src_offset = 0, .dst_offset = 0, .size = size };
+        self.vkd.cmdCopyBuffer(cmdbuf, src, dst, 1, @ptrCast(&region));
+
+        try self.endSingleTimeCommands(pool, cmdbuf, self.graphics_queue.handle);
+    }
+
+    pub fn Buffer(Data: type) type {
+        return struct {
+            vk_handle: vk.Buffer,
+            memory: vk.DeviceMemory,
+            length: usize,
+            data_ptr: ?[*]Data = null,
+
+            const Self = @This();
+            pub fn getBufferInfo(self: *const Self) vk.DescriptorBufferInfo {
+                std.debug.print("Buffer takes up {d} * {d} bytes\n", .{ @sizeOf(Data), self.length });
+                return vk.DescriptorBufferInfo{ .buffer = self.vk_handle, .offset = 0, .range = @sizeOf(Data) * @as(u64, self.length) };
+            }
+            
+            pub fn map(self: *Self, gc: *const GraphicsContext) !void {
+                 if (self.data_ptr == null) {
+                     self.data_ptr = @ptrCast(@alignCast(try gc.vkd.mapMemory(gc.dev, self.memory, 0, vk.WHOLE_SIZE, .{})));
+                 }
+            }
+
+            pub fn unmap(self: *Self, gc: *const GraphicsContext) void {
+                if (self.data_ptr) |_| {
+                    gc.vkd.unmapMemory(gc.dev, self.memory);
+                }
+                self.data_ptr = null;
+            }
+
+            pub fn write(self: *Self, gc: *const GraphicsContext, data: []const Data) !void {
+                if (self.data_ptr) |data_ptr| {
+                    @memcpy(data_ptr, data);
+                } else {
+                    try self.map(gc);
+                    @memcpy(self.data_ptr.?, data);
+                    self.unmap(gc);
+                }
+            }
+
+            pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
+                std.debug.print("Destroying buffer object\n", .{});
+                if (self.data_ptr) |_| { gc.vkd.unmapMemory(gc.dev, self.memory); }
+                gc.vkd.freeMemory(gc.dev, self.memory, null);
+                gc.vkd.destroyBuffer(gc.dev, self.vk_handle, null);
+            }
+        };
+    }
+
+    pub fn allocateBuffer(self: GraphicsContext, comptime T: type, length: usize, usage_flags: vk.BufferUsageFlags, memory_type: vk.MemoryPropertyFlags) !Buffer(T) {
+        const size = @sizeOf(T) * length;
+        const buffer = try self.vkd.createBuffer(self.dev, &.{
+            .flags = .{},
+            .size = size,
+            .usage = usage_flags,
+            .sharing_mode = .exclusive,
+            .queue_family_index_count = 0,
+            .p_queue_family_indices = undefined,
+        }, null);
+        errdefer self.vkd.destroyBuffer(self.dev, buffer, null);
+
+        const mem_reqs = self.vkd.getBufferMemoryRequirements(self.dev, buffer);
+        const memory = try self.allocate(mem_reqs, memory_type);
+        errdefer self.vkd.freeMemory(self.dev, memory, null);
+
+        try self.vkd.bindBufferMemory(self.dev, buffer, memory, 0);
+        
+        std.debug.print("Creating buffer of length: {d}\n", .{ length });
+        return Buffer(T) {
+            .vk_handle = buffer,
+            .memory = memory,
+            .length = length,
+        };
+    }
+
+    pub fn writeStagingBuffer(self: GraphicsContext, comptime T: type, data: []const T) !Buffer(T) {
+        const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
+        const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
+
+        var buffer = try self.allocateBuffer(T, data.len, usage_flags, memory_properties);
+        try buffer.write(&self, data);
+
+        return buffer;
     }
 };
 fn debugCallback(_: vk.DebugUtilsMessageSeverityFlagsEXT, _: vk.DebugUtilsMessageTypeFlagsEXT, p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, _: ?*anyopaque) callconv(vk.vulkan_call_conv) vk.Bool32 {
