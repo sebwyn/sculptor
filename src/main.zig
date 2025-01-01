@@ -36,6 +36,50 @@ const Vertex = struct {
     color: [3]f32,
 };
 
+fn UniformBuffer(Data: type) type {
+    return struct {
+        buffer: vk.Buffer,
+        buffer_memory: vk.DeviceMemory,
+        data_ptr: *Data,
+        
+        const Self = @This();
+        pub fn init(gc: GraphicsContext) !Self {
+            const uniform_buffer_create_info = vk.BufferCreateInfo{ .flags = .{}, .size = @sizeOf(Data), .usage = .{ .uniform_buffer_bit = true }, .sharing_mode = .exclusive };
+
+            const uniform_buffer = try gc.vkd.createBuffer(gc.dev, &uniform_buffer_create_info, null);
+            errdefer gc.vkd.destroyBuffer(gc.dev, uniform_buffer, null);
+
+            const uniform_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, uniform_buffer);
+            const buffer_memory = try gc.allocate(uniform_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
+            errdefer gc.vkd.freeMemory(gc.dev, buffer_memory, null);
+
+            try gc.vkd.bindBufferMemory(gc.dev, uniform_buffer, buffer_memory, 0);
+
+            const mapped_memory = try gc.vkd.mapMemory(gc.dev, buffer_memory, 0, vk.WHOLE_SIZE, .{}) orelse return error.MemoryMapFailed;
+
+            return Self {
+                .buffer = uniform_buffer,
+                .buffer_memory = buffer_memory,
+                .data_ptr = @ptrCast(@alignCast(mapped_memory))
+            };
+        }
+
+        pub fn write(self: *Self, data: Data) void {
+            self.data_ptr.* = data;
+        }
+
+        pub fn getBufferInfo(self: *const Self) vk.DescriptorBufferInfo {
+            return vk.DescriptorBufferInfo{ .buffer = self.buffer, .offset = 0, .range = @sizeOf(Data) };
+        }
+
+        pub fn deinit(self: Self, gc: GraphicsContext) void {
+            gc.vkd.unmapMemory(gc.dev, self.buffer_memory);
+            gc.vkd.freeMemory(gc.dev, self.buffer_memory, null);
+            gc.vkd.destroyBuffer(gc.dev, self.buffer, null);
+        }
+    };
+}
+
 const vertices = [_]Vertex{
     .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
     .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 1, 0 } },
@@ -49,12 +93,6 @@ const Camera = struct {
     view_matrix: zlm.Mat4,
     proj_matrix: zlm.Mat4,
     screen_size: [4]f32,
-};
-
-const UniformBuffer = struct {
-    screen_size: [4]f32,
-    camera_pos: [3]f32,
-    fov: f32,
 };
 
 /// Default GLFW error handling callback
@@ -121,26 +159,16 @@ pub fn main() !void {
 
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
     defer destroyFramebuffers(&gc, allocator, framebuffers);
-
-    const uniform_buffer_create_info = vk.BufferCreateInfo{ .flags = .{}, .size = @sizeOf(Camera), .usage = .{ .uniform_buffer_bit = true }, .sharing_mode = .exclusive };
-
-    var uniform_buffers: []vk.Buffer = try allocator.alloc(vk.Buffer, framebuffers.len);
+    
+    var initialized_uniform_buffers: usize = 0;
+    var uniform_buffers = try allocator.alloc(UniformBuffer(Camera), framebuffers.len);
     defer allocator.free(uniform_buffers);
-    var uniform_buffer_memories: []vk.DeviceMemory = try allocator.alloc(vk.DeviceMemory, framebuffers.len);
-    defer allocator.free(uniform_buffer_memories);
-    var uniform_buffers_mapped: []*anyopaque = try allocator.alloc(*anyopaque, framebuffers.len);
-    for (0..framebuffers.len) |i| {
-        uniform_buffers[i] = try gc.vkd.createBuffer(gc.dev, &uniform_buffer_create_info, null);
-        const uniform_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, uniform_buffers[i]);
-        uniform_buffer_memories[i] = try gc.allocate(uniform_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
-        try gc.vkd.bindBufferMemory(gc.dev, uniform_buffers[i], uniform_buffer_memories[i], 0);
-        uniform_buffers_mapped[i] = try gc.vkd.mapMemory(gc.dev, uniform_buffer_memories[i], 0, vk.WHOLE_SIZE, .{}) orelse return error.MemoryMapFailed;
+    defer for (0..initialized_uniform_buffers) |b| { uniform_buffers[b].deinit(gc); };
+    
+    while (initialized_uniform_buffers < framebuffers.len) {
+        uniform_buffers[initialized_uniform_buffers] = try UniformBuffer(Camera).init(gc);
+        initialized_uniform_buffers += 1; 
     }
-    defer for (0..framebuffers.len) |i| {
-        gc.vkd.unmapMemory(gc.dev, uniform_buffer_memories[i]);
-        gc.vkd.freeMemory(gc.dev, uniform_buffer_memories[i], null);
-        gc.vkd.destroyBuffer(gc.dev, uniform_buffers[i], null);
-    };
 
     const descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &vk.DescriptorPoolCreateInfo{ .pool_size_count = 1, .max_sets = @intCast(framebuffers.len), .p_pool_sizes = &.{
         vk.DescriptorPoolSize{
@@ -152,12 +180,11 @@ pub fn main() !void {
 
     var descriptor_set_layouts: []vk.DescriptorSetLayout = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
     defer allocator.free(descriptor_set_layouts);
-    for (0..framebuffers.len) |i| {
-        descriptor_set_layouts[i] = descriptor_set_layout;
-    }
+    for (0..framebuffers.len) |i| { descriptor_set_layouts[i] = descriptor_set_layout; }
 
     const descriptor_sets: []vk.DescriptorSet = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
     defer allocator.free(descriptor_sets);
+
     try gc.vkd.allocateDescriptorSets(gc.dev, &vk.DescriptorSetAllocateInfo{
         .descriptor_pool = descriptor_pool,
         .p_set_layouts = descriptor_set_layouts.ptr,
@@ -165,8 +192,17 @@ pub fn main() !void {
     }, descriptor_sets.ptr);
 
     for (0..framebuffers.len) |i| {
-        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{vk.WriteDescriptorSet{ .descriptor_type = .uniform_buffer, .dst_set = descriptor_sets[i], .dst_binding = 1, .dst_array_element = 0, .descriptor_count = 1, .p_buffer_info = &.{vk.DescriptorBufferInfo{ .buffer = uniform_buffers[i], .offset = 0, .range = @sizeOf(UniformBuffer) }}, .p_image_info = &[_]vk.DescriptorImageInfo{}, .p_texel_buffer_view = &[_]vk.BufferView{} }}, 0, null);
-    }
+        const write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .uniform_buffer, 
+            .dst_set = descriptor_sets[i], 
+            .dst_binding = 1, 
+            .dst_array_element = 0, 
+            .descriptor_count = 1,
+            .p_buffer_info = &.{ uniform_buffers[i].getBufferInfo() }, 
+            .p_image_info = &[_]vk.DescriptorImageInfo{}, 
+            .p_texel_buffer_view = &[_]vk.BufferView{} 
+        };
+        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{ write_descriptor }, 0, null); }
 
     const pool = try gc.vkd.createCommandPool(gc.dev, &.{
         .flags = .{},
@@ -206,7 +242,6 @@ pub fn main() !void {
     
     const start_time = std.time.milliTimestamp();
     while (!window.shouldClose()) {
-
         const cmdbuf = cmdbufs[swapchain.image_index];
         
         const current_time = std.time.milliTimestamp();
@@ -223,17 +258,14 @@ pub fn main() !void {
         const window_width = @as(f32, @floatFromInt(window_size.width));
         const window_height = @as(f32, @floatFromInt(window_size.height));
         const aspect_ratio: f32 = window_width / window_height; 
-        var proj_matrix = zlm.Mat4.createPerspective((PI / 180.0) * 120.0, aspect_ratio, 1, 1000);
-        proj_matrix.fields[2][2] *= -1;
+        
         const camera = Camera{
             .view_matrix = zlm.Mat4.createLook(camera_position, (target.sub(camera_position)).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0)),
-            .proj_matrix = proj_matrix, 
+            .proj_matrix = zlm.Mat4.createPerspective((PI / 180.0) * 120.0, aspect_ratio, 1, 1000), 
             .screen_size = .{ window_width, window_height, 0.0, 0.0 }
         };
 
-
-        const gpu_uniforms: [*]Camera = @ptrCast(@alignCast(uniform_buffers_mapped[swapchain.image_index]));
-        gpu_uniforms[0] = camera;
+        uniform_buffers[swapchain.image_index].write(camera);
 
         const state = swapchain.present(cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
