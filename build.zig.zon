@@ -35,6 +35,10 @@
             .url = "https://github.com/Snektron/vulkan-zig/archive/5559cccea667a2c159354bdb99cc398c2d893a1b.tar.gz",
             .hash = "1220ed8dbf35b9391f2d11c984493f80ecef1287bf07c9e29fba967c6912e54bb9b3",
         },
+        .zlm = .{
+            .url = "https://github.com/ziglibs/zlm/archive/35b76fae19f9d0a1ed541db621d7c4b3e266087e.tar.gz",
+            .hash = "1220342ac333965de915f74a8425e4848ffe46852da0e4789103f9ec650c3cd22456",
+        },
     },
     .paths = .{
         "build.zig",

@@ -1,6 +1,7 @@
 const std = @import("std");
 const glfw = @import("mach-glfw");
 const vk = @import("vulkan");
+const zlm = @import("zlm").SpecializeOn(f32);
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const triangle_vert = @embedFile("triangle_vert");
@@ -44,16 +45,24 @@ const vertices = [_]Vertex{
     .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 0, 1 } },
 };
 
+const Camera = struct {
+    view_matrix: zlm.Mat4,
+    proj_matrix: zlm.Mat4,
+    screen_size: [4]f32,
+};
+
 const UniformBuffer = struct {
     screen_size: [4]f32,
-    camera_pos: [4]f32,
-    near: [4]f32,
+    camera_pos: [3]f32,
+    fov: f32,
 };
 
 /// Default GLFW error handling callback
 fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
     std.log.err("glfw: {}: {s}\n", .{ error_code, description });
 }
+
+const PI = 3.14159265;
 
 pub fn main() !void {
     glfw.setErrorCallback(errorCallback);
@@ -113,13 +122,15 @@ pub fn main() !void {
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
     defer destroyFramebuffers(&gc, allocator, framebuffers);
 
+    const uniform_buffer_create_info = vk.BufferCreateInfo{ .flags = .{}, .size = @sizeOf(Camera), .usage = .{ .uniform_buffer_bit = true }, .sharing_mode = .exclusive };
+
     var uniform_buffers: []vk.Buffer = try allocator.alloc(vk.Buffer, framebuffers.len);
     defer allocator.free(uniform_buffers);
     var uniform_buffer_memories: []vk.DeviceMemory = try allocator.alloc(vk.DeviceMemory, framebuffers.len);
     defer allocator.free(uniform_buffer_memories);
     var uniform_buffers_mapped: []*anyopaque = try allocator.alloc(*anyopaque, framebuffers.len);
     for (0..framebuffers.len) |i| {
-        uniform_buffers[i] = try gc.vkd.createBuffer(gc.dev, &.{ .flags = .{}, .size = @sizeOf(UniformBuffer), .usage = .{ .uniform_buffer_bit = true }, .sharing_mode = .exclusive }, null);
+        uniform_buffers[i] = try gc.vkd.createBuffer(gc.dev, &uniform_buffer_create_info, null);
         const uniform_mem_reqs = gc.vkd.getBufferMemoryRequirements(gc.dev, uniform_buffers[i]);
         uniform_buffer_memories[i] = try gc.allocate(uniform_mem_reqs, .{ .host_visible_bit = true, .host_coherent_bit = true });
         try gc.vkd.bindBufferMemory(gc.dev, uniform_buffers[i], uniform_buffer_memories[i], 0);
@@ -194,17 +205,26 @@ pub fn main() !void {
     defer destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
 
     while (!window.shouldClose()) {
+
         const cmdbuf = cmdbufs[swapchain.image_index];
-        
+
+        const camera_position = zlm.Vec3.new(-10.0, 0.0, -10.0);
+
         const window_size = window.getFramebufferSize();
-        const uniforms = UniformBuffer{
-            .screen_size = .{ @as(f32, @floatFromInt(window_size.width)), @as(f32, @floatFromInt(window_size.height)), 0.0, 0.0 },
-            .camera_pos = .{ 0.0, 0.0, -10.0, 0.0 },
-            .near = .{ 1.0, 0, 0, 0.0 },
+        const window_width = @as(f32, @floatFromInt(window_size.width));
+        const window_height = @as(f32, @floatFromInt(window_size.height));
+        const aspect_ratio: f32 = window_width / window_height; 
+        var proj_matrix = zlm.Mat4.createPerspective((PI / 180.0) * 120.0, aspect_ratio, 1, 1000);
+        proj_matrix.fields[2][2] *= -1;
+        const camera = Camera{
+            .view_matrix = zlm.Mat4.createLook(camera_position, zlm.Vec3.new(0.0, 0.0, 1.0).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0)),
+            .proj_matrix = proj_matrix, 
+            .screen_size = .{ window_width, window_height, 0.0, 0.0 }
         };
 
-        const gpu_uniforms: [*]UniformBuffer = @ptrCast(@alignCast(uniform_buffers_mapped[swapchain.image_index]));
-        gpu_uniforms[0] = uniforms;
+
+        const gpu_uniforms: [*]Camera = @ptrCast(@alignCast(uniform_buffers_mapped[swapchain.image_index]));
+        gpu_uniforms[0] = camera;
 
         const state = swapchain.present(cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,

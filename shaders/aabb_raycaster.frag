@@ -1,11 +1,13 @@
 #version 450
 
+const float PI = 3.14159265;
+
 layout(location=0) out vec4 f_color;
 
 layout(binding=1) uniform uniform_buffer {
-  vec2 dimensions; 
-  vec3 pos;
-  float near;
+  mat4x4 view;
+  mat4x4 proj;
+  vec2 screen_size;
 } uniforms; 
 
 
@@ -26,8 +28,7 @@ vec3 calcNormal(vec3 p) { // for function f(p)
 }
 
 vec4 raymarch(vec3 pos, vec3 ray) {
-  const vec3 light_pos = vec3(-5, 5, -5);
-  const vec3 light_dir = normalize(vec3(1.0, -1.0, 1.0));
+  const vec3 light_pos = vec3(-5, 0, 0);
   const vec3 light_color = vec3(1.0);
 
   int i = 0;
@@ -37,7 +38,7 @@ vec4 raymarch(vec3 pos, vec3 ray) {
     if ( dist < 0.0001 ) {
       vec3 surface_normal = calcNormal(pos);
       vec3 light_ray = normalize(light_pos - pos);
-      vec3 shading = light_color * (max(dot(surface_normal, light_ray), 0.0) + 0.05);
+      vec3 shading = light_color * (max(dot(light_ray, surface_normal), 0.0) + 0.05);
       return vec4(shading, 1.0);
     }
     i += 1;
@@ -47,12 +48,15 @@ vec4 raymarch(vec3 pos, vec3 ray) {
 
 
 void main() {
-  float aspect_ratio = uniforms.dimensions.y / uniforms.dimensions.x;
-
-  vec3 pos = uniforms.pos; 
-  vec3 ray = normalize(vec3((gl_FragCoord.xy - uniforms.dimensions / 2) / uniforms.dimensions / 2, 1.0));
-  ray.y *= -aspect_ratio;
+  vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
+  projected_near.y *= -1.0;
   
-  f_color = raymarch(pos, ray);
+  mat4x4 inverse_camera_matrix = inverse(uniforms.proj * uniforms.view);
+  vec3 worldspace_near = (inverse_camera_matrix * projected_near).xyz; 
+
+  vec3 camera_pos = inverse(uniforms.view)[3].xyz;
+  vec3 ray = normalize(worldspace_near - camera_pos);
+  
+  f_color = raymarch(camera_pos, ray);
 }
 

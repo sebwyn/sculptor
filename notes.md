@@ -1,3 +1,9 @@
+## TODO
+
+ - Get a fpv camera working
+ - Raycast into 3d texture with simple AABB raycasting
+ - Load a .vox file, solve whatever problems come up, maybe work with materials
+
 ## Voxel Rendering Techniques and papers
 
  - The essential AABB raycasting algorithm [paper](https://www.researchgate.net/publication/2611491_A_Fast_Voxel_Traversal_Algorithm_for_Ray_Tracing) 

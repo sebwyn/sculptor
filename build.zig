@@ -32,74 +32,10 @@ pub fn build(b: *std.Build) !void {
     // running `zig build`).
     b.installArtifact(lib);
 
-    const exe = b.addExecutable(.{
-        .name = "sculptor",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const env = try std.process.getEnvMap(b.allocator);
-    const vulkan_sdk_path = try (env.get("VULKAN_SDK") orelse error.CouldNotFindVulkan);
-    exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = try std.fs.path.join(b.allocator, &[_][]const u8{ vulkan_sdk_path, "Lib" }) });
-    
-    const vulkan_library_name = switch (builtin.os.tag) {
-        .windows => "vulkan-1",
-        else => "vulkan"
-    };
-    exe.linkSystemLibrary(vulkan_library_name);
-
-    // Use mach-glfw
-    const glfw_dep = b.dependency("mach-glfw", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
-
-    const registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
-    const vk_gen = b.dependency("vulkan_zig", .{}).artifact("vulkan-zig-generator");
-    const vk_generate_cmd = b.addRunArtifact(vk_gen);
-    vk_generate_cmd.addFileArg(registry);
-    const vulkan_zig = b.addModule("vulkan-zig", .{
-        .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
-    });
-    exe.root_module.addImport("vulkan", vulkan_zig);
-
-    var shader_dir = try std.fs.openDirAbsolute(b.path("shaders").getPath(b), .{ .iterate = true });
-    defer shader_dir.close();
-
-    var shader_paths = shader_dir.iterate();
-    while (shader_paths.next() catch null) |input_file| {
-        if (input_file.kind != .file) continue;
-        var name_extension = std.mem.splitSequence(u8, input_file.name, ".");
-        const name = name_extension.next() orelse continue;
-        const extension = name_extension.next() orelse continue;
-
-        if (std.mem.eql(u8, extension, "vert") or
-            std.mem.eql(u8, extension, "frag") or
-            std.mem.eql(u8, extension, "glsl"))
-        {
-            const output_file = try b.allocator.alloc(u8, input_file.name.len);
-            defer b.allocator.free(output_file);
-            _ = try std.fmt.bufPrint(output_file, "{s}_{s}", .{ name, extension });
-
-            const compiled_file_name = try b.allocator.alloc(u8, input_file.name.len + 4);
-            defer b.allocator.free(compiled_file_name);
-            _ = try std.fmt.bufPrint(compiled_file_name, "{s}.spv", .{output_file});
-
-            const compile_vert_shader = b.addSystemCommand(&.{"glslc"});
-            compile_vert_shader.addFileArg(b.path(b.pathJoin(&.{ "shaders", input_file.name })));
-            compile_vert_shader.addArgs(&.{ "--target-env=vulkan1.1", "-o" });
-            const compiled_file = compile_vert_shader.addOutputFileArg(compiled_file_name);
-            exe.root_module.addAnonymousImport(output_file, .{
-                .root_source_file = compiled_file,
-            });
-        }
-    }
-
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
+    const exe = try create_compile_step(b, target, optimize);
     b.installArtifact(exe);
 
     // This *creates* a Run step in the build graph, to be executed when another
@@ -149,4 +85,91 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+    
+    const exe_check = try create_compile_step(b, target, optimize);
+    const check = b.step("check", "Check if foo compiles");
+    check.dependOn(&exe_check.step);
+}
+
+fn compile_all_shaders(b: *std.Build) !struct{ std.ArrayList([]u8), std.ArrayList(std.Build.LazyPath) } {
+    var shader_dir = try std.fs.openDirAbsolute(b.path("shaders").getPath(b), .{ .iterate = true });
+    defer shader_dir.close();
+
+    var shader_file_names = std.ArrayList([]u8).init(b.allocator);
+    var shader_file_paths = std.ArrayList(std.Build.LazyPath).init(b.allocator);
+
+    var shader_paths = shader_dir.iterate();
+    while (shader_paths.next() catch null) |input_file| {
+        if (input_file.kind != .file) continue;
+
+        var name_extension = std.mem.splitSequence(u8, input_file.name, ".");
+        const name = name_extension.next() orelse continue;
+        const extension = name_extension.next() orelse continue;
+
+        if (std.mem.eql(u8, extension, "vert") or
+            std.mem.eql(u8, extension, "frag") or
+            std.mem.eql(u8, extension, "glsl"))
+        {
+            const output_file = try b.allocator.alloc(u8, input_file.name.len);
+            _ = try std.fmt.bufPrint(output_file, "{s}_{s}", .{ name, extension });
+
+            const compiled_file_name = try b.allocator.alloc(u8, input_file.name.len + 4);
+            defer b.allocator.free(compiled_file_name);
+            _ = try std.fmt.bufPrint(compiled_file_name, "{s}.spv", .{output_file});
+
+            const compile_vert_shader = b.addSystemCommand(&.{"glslc"});
+            compile_vert_shader.addFileArg(b.path(b.pathJoin(&.{ "shaders", input_file.name })));
+            compile_vert_shader.addArgs(&.{ "--target-env=vulkan1.1", "-o" });
+            const compiled_file = compile_vert_shader.addOutputFileArg(compiled_file_name);
+            try shader_file_names.append(output_file);
+            try shader_file_paths.append(compiled_file);
+        }
+    }
+    
+    return .{ shader_file_names, shader_file_paths };
+}
+
+fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
+    const exe = b.addExecutable(.{
+        .name = "sculptor",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const glfw_dep = b.dependency("mach-glfw", .{ .target = target, .optimize = optimize, });
+
+    const env = try std.process.getEnvMap(b.allocator);
+    const vulkan_sdk_path = try (env.get("VULKAN_SDK") orelse error.CouldNotFindVulkan);
+    exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = try std.fs.path.join(b.allocator, &[_][]const u8{ vulkan_sdk_path, "Lib" }) });
+    const vulkan_library_name = switch (builtin.os.tag) { .windows => "vulkan-1", else => "vulkan" };
+    exe.linkSystemLibrary(vulkan_library_name);
+
+    const registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
+    const vk_gen = b.dependency("vulkan_zig", .{}).artifact("vulkan-zig-generator");
+    const vk_generate_cmd = b.addRunArtifact(vk_gen);
+    vk_generate_cmd.addFileArg(registry);
+    const vulkan_zig = b.addModule("vulkan-zig", .{ .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"), });
+
+    exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
+    exe.root_module.addImport("vulkan", vulkan_zig);
+    exe.root_module.addImport("zlm", b.dependency("zlm", .{}).module("zlm"));
+    
+    const compiled_shaders = try compile_all_shaders(b);
+    defer {
+        for (compiled_shaders[0].items) |name| { 
+            b.allocator.free(name); 
+        }
+        compiled_shaders[0].deinit();
+        compiled_shaders[1].deinit();
+    }
+    for (compiled_shaders[0].items, compiled_shaders[1].items) |name, path| {
+        std.debug.print("Adding shader import: {s}", .{ name });
+        exe.root_module.addAnonymousImport(name, .{
+            .root_source_file = path
+        });
+    }
+
+
+    return exe;
 }
