@@ -21,6 +21,16 @@
  - [Iolite](https://iolite-engine.com) 
  - [Unreal does voxels](https://voxelplugin.com)
 
+ - Teardown approach:
+    - Render a g-buffer (depth and color) by raycasting into all visible objects, each object is a 3d texture
+    rays are first cast from the camera to where the object is positioned in space, and then AABB ray casting is used within the object
+    - For lighting all the objects are splatted into an axis aligned voxel octree where all ambient occlusion, lighting, and spectral occlusion rays can
+    be cast, this is described as an octree but in reality is just mip levels, the difference is there may be a way to be more efficient then teardown with
+    this datastructure
+    - Teardown is also a really interesting source for how physics can be implemented
+
+
+
 ## Youtube channels with voxel engines
 
  - [Xima](https://www.youtube.com/@xima1): Minecraft clone, but with raytraced looking graphics

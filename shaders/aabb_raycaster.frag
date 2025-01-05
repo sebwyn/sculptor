@@ -12,52 +12,77 @@ layout(binding=0) uniform uniform_buffer {
 
 layout(binding=1) uniform sampler3D voxels;
 
-float circle(vec3 sphere_center, float radius, vec3 pos) {
-  return distance(pos, sphere_center) - radius;
+bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin) {
+    vec3 t0s = (cubeMin - ro) * rd_inv;
+    vec3 t1s = (cubeMax - ro) * rd_inv;
+    vec3 tsmaller = min(t0s, t1s);
+    vec3 tbigger = max(t0s, t1s);
+    float tmin = max(tsmaller.x, max(tsmaller.y, tsmaller.z));
+    float tmax = min(tbigger.x, min(tbigger.y, tbigger.z));
+    bool intersection = tmax >= max(tmin, 0.0);
+    outTmin = max(tmin,0.0);
+    return intersection;
 }
 
-float sdf(vec3 pos) {
-  return circle(vec3(0.0), 1.0, pos);
+
+float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
+  vec3 texCoord = (pos + halfGridSize) / gridSize;
+  return texture(voxels, texCoord).r;
 }
 
-vec3 calcNormal(vec3 p) { // for function f(p)
-    const float eps = 0.0001; // or some other value
-    const vec2 h = vec2(eps,0);
-    return normalize( vec3(sdf(p+h.xyy) - sdf(p-h.xyy),
-                           sdf(p+h.yxy) - sdf(p-h.yxy),
-                           sdf(p+h.yyx) - sdf(p-h.yyx) ) );
+
+float frac(float x) {
+  return x - floor(x);
 }
-
-vec4 raymarch(vec3 pos, vec3 ray) {
-  const vec3 light_pos = vec3(-5, 5, 5);
-  const vec3 light_color = vec3(1.0);
-
-  int i = 0;
-  while (i < 15) {
-    float dist = sdf(pos);
-    pos += ray * dist;
-    if ( dist < 0.0001 ) {
-      vec3 surface_normal = calcNormal(pos);
-      vec3 light_ray = normalize(light_pos - pos);
-      vec3 shading = light_color * (max(dot(light_ray, surface_normal), 0.0) + 0.05);
-      return vec4(shading, 1.0);
-    }
-    i += 1;
-  }
-  return vec4(0.0);
-}
-
 
 void main() {
+  vec3 gridSize = textureSize(voxels, 0);
+  vec3 halfGridSize = gridSize/2;
+  
   vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
   projected_near.y *= -1.0;
   
-  mat4x4 inverse_camera_matrix = inverse(uniforms.proj * uniforms.view);
-  vec3 worldspace_near = (inverse_camera_matrix * projected_near).xyz; 
+  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view);
+  vec4 near4 = (inverseCameraMatrix * projected_near); 
+  vec4 far4 = near4 + inverseCameraMatrix[2];
+  vec3 near = near4.xyz / near4.w;
+  vec3 far = far4.xyz / far4.w;
+  vec3 cameraPos = near;
+  vec3 ray = normalize(far-near);
 
-  vec3 camera_pos = inverse(uniforms.view)[3].xyz;
-  vec3 ray = normalize(worldspace_near - camera_pos);
-  
-  f_color = vec4(texture(voxels, vec3((projected_near.x + 1)/2, (projected_near.y + 1)/2, 0.5)).r);
+  float tMin = 0.0;
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin)) {
+      f_color = vec4(0.0);
+      return;
+  }
+  vec3 startPos = cameraPos + ray * tMin;
+  vec3 voxelPos = floor(startPos);
+  vec3 grid_delta = sign(ray);
+
+  vec3 tDelta = min(1/abs(ray), 1000000);
+  vec3 tMax = abs(((voxelPos + max(grid_delta, 0)) - startPos) / ray);
+
+  int iterations = 0;
+  float voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+  vec3 normal = vec3(0);
+  float tIntersection = -1;
+  for (int i = 0; i < 100; ++i) {
+    vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
+    voxelPos += grid_delta * cmp;
+    voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+    if(voxel > 0) {
+      vec3 tVec = tMax * cmp;
+      tIntersection = max(max(tVec.x, tVec.y), tVec.z);
+      normal = -1 * grid_delta * cmp;
+      break;
+    }
+    tMax += tDelta * cmp;
+  }
+
+  vec3 lightPos = vec3(20, 20, 20);
+  vec3 pos = startPos + ray * tIntersection;
+  f_color = (tIntersection > 0) ? 
+    vec4(vec3(0.2) + max(vec3(0.7, 0.3, 0.4) * dot(normalize(lightPos - pos), normal), vec3(0)), 1.0)
+    : vec4(0.0);
 }
 

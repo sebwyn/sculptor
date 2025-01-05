@@ -284,23 +284,9 @@ pub fn main() !void {
     }, null);
     defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
 
-    var voxels = try Texture3d.init(&gc, 16, 16, 16);
+    var voxels = try Texture3d.init(&gc, 32, 32, 32);
     defer voxels.deinit(&gc);
     
-    var voxel_data: [16 * 16 * 16]u8 = undefined;
-    for (0..16) |z| {
-        for (0..16) |y| {
-            for (0..16) |x| {
-                const texture_index = 16 * 16 * z + 16 * y + x;
-                const xf = @as(f32, @floatFromInt(x)) + 0.5 - 8;
-                const yf = @as(f32, @floatFromInt(y)) + 0.5 - 8;
-                const zf = @as(f32, @floatFromInt(z)) + 0.5 - 8;
-                const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
-                voxel_data[texture_index] = 255 * @as(u8, @intFromBool(dist_from_origin < 4));
-            }
-        }
-    }
-
 
     var initialized_uniform_buffers: usize = 0;
     var uniform_buffers = try allocator.alloc(GraphicsContext.Buffer(Camera), framebuffers.len);
@@ -364,6 +350,19 @@ pub fn main() !void {
         gc.vkd.updateDescriptorSets(gc.dev, 2, &.{ camera_write_descriptor, texture_write_descriptor }, 0, null);
     }
 
+    var voxel_data: [32 * 32 * 32]u8 = undefined;
+    for (0..32) |z| {
+        for (0..32) |y| {
+            for (0..32) |x| {
+                const texture_index = 32 * 32 * z + 32 * y + x;
+                const xf = @as(f32, @floatFromInt(x)) + 0.5 - 16;
+                const yf = @as(f32, @floatFromInt(y)) + 0.5 - 16;
+                const zf = @as(f32, @floatFromInt(z)) + 0.5 - 16;
+                const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
+                voxel_data[texture_index] = 255 * @as(u8, @intFromBool(dist_from_origin < 8));
+            }
+        }
+    }
     try voxels.write(&gc, pool, &voxel_data);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
@@ -390,22 +389,28 @@ pub fn main() !void {
     while (!window.shouldClose()) {
         const cmdbuf = cmdbufs[swapchain.image_index];
 
-        const current_time = std.time.milliTimestamp();
-        const angle: f32 = (2 * PI) * @as(f32, @floatFromInt(current_time - start_time)) / (1000 * 60);
-
-        const x = 10 * std.math.cos(angle);
-        const z = 10 * std.math.sin(angle);
-        const y = 3 * std.math.sin(4 * angle);
+        const elapsed: f32 = @floatFromInt(std.time.milliTimestamp() - start_time);
+        const angle: f32 = (2 * PI) * elapsed / (1000 * 60);
 
         const target = zlm.Vec3.new(0.0, 0.0, 0.0);
+        
+        // const d = -500 + elapsed / 100;
+
+        const x = 20 * std.math.cos(angle);
+        const z = 20 * std.math.sin(angle);
+        const y = 0;
+        // const camera_position = zlm.Vec3.new(x, y, z);
         const camera_position = zlm.Vec3.new(x, y, z);
 
         const window_size = window.getFramebufferSize();
-        const window_width = @as(f32, @floatFromInt(window_size.width));
-        const window_height = @as(f32, @floatFromInt(window_size.height));
-        const aspect_ratio: f32 = window_width / window_height;
+        const window_width: f32 = @floatFromInt(window_size.width);
+        const window_height: f32 = @floatFromInt(window_size.height);
 
-        const camera = Camera{ .view_matrix = zlm.Mat4.createLook(camera_position, (target.sub(camera_position)).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0)), .proj_matrix = zlm.Mat4.createPerspective((PI / 180.0) * 120.0, aspect_ratio, 1, 1000), .screen_size = .{ window_width, window_height, 0.0, 0.0 } };
+        const view = zlm.Mat4.createLook(camera_position, (target.sub(camera_position)).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0));
+        const proj = zlm.Mat4.createPerspective((PI / 180.0) * 90.0, window_width / window_height, 1, 1000);
+        // std.debug.print("{d}\n{any}\n{any}\n\n", .{d, view.invert(), proj.invert()});
+
+        const camera = Camera{ .view_matrix = view, .proj_matrix = proj, .screen_size = .{ window_width, window_height, 0.0, 0.0 } };
 
         try uniform_buffers[swapchain.image_index].write(&gc, &.{ camera });
 

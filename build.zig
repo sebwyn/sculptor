@@ -164,7 +164,6 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
         compiled_shaders[1].deinit();
     }
     for (compiled_shaders[0].items, compiled_shaders[1].items) |name, path| {
-        std.debug.print("Adding shader import: {s}", .{ name });
         exe.root_module.addAnonymousImport(name, .{
             .root_source_file = path
         });
