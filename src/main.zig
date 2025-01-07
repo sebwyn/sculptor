@@ -7,6 +7,9 @@ const Swapchain = @import("swapchain.zig").Swapchain;
 const triangle_vert = @embedFile("triangle_vert");
 const triangle_frag = @embedFile("aabb_raycaster_frag");
 const Allocator = std.mem.Allocator;
+const Window = @import("window.zig").Window;
+const CameraController = @import("camera_controller.zig").CameraController;
+const Camera = @import("camera_controller.zig").Camera;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
 
@@ -199,11 +202,6 @@ const vertices = [_]Vertex{
     .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 0, 1 } },
 };
 
-const Camera = struct {
-    view_matrix: zlm.Mat4,
-    proj_matrix: zlm.Mat4,
-    screen_size: [4]f32,
-};
 
 /// Default GLFW error handling callback
 fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
@@ -221,18 +219,18 @@ pub fn main() !void {
     defer glfw.terminate();
 
     var extent = vk.Extent2D{ .width = 800, .height = 600 };
-
-    const window = glfw.Window.create(extent.width, extent.height, app_name, null, null, .{
-        .client_api = .no_api,
-    }) orelse {
-        std.log.err("failed to create GLFW window: {?s}", .{glfw.getErrorString()});
-        std.process.exit(1);
-    };
-    defer window.destroy();
+    
+    var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
+    defer if (gpa.deinit() == .leak) { @panic("Your leaking dog"); };
+    const general_allocator = gpa.allocator();
+    var window = try Window.init(general_allocator, 800, 600, "sculptor");
+    defer window.deinit();
+    
+    var camera_controller = CameraController.init(&window);
+    camera_controller.registerWithEvents(&window);
 
     const allocator = std.heap.page_allocator;
-
-    const gc = try GraphicsContext.init(allocator, app_name, window);
+    const gc = try GraphicsContext.init(allocator, app_name, window.glfw_window);
     defer gc.deinit();
 
     std.debug.print("Using device: {?s}\n", .{gc.props.device_name});
@@ -385,34 +383,10 @@ pub fn main() !void {
     );
     defer destroyCommandBuffers(&gc, pool, allocator, cmdbufs);
 
-    const start_time = std.time.milliTimestamp();
-    while (!window.shouldClose()) {
+    while (!window.glfw_window.shouldClose()) {
         const cmdbuf = cmdbufs[swapchain.image_index];
 
-        const elapsed: f32 = @floatFromInt(std.time.milliTimestamp() - start_time);
-        const angle: f32 = (2 * PI) * elapsed / (1000 * 60);
-
-        const target = zlm.Vec3.new(0.0, 0.0, 0.0);
-        
-        // const d = -500 + elapsed / 100;
-
-        const x = 20 * std.math.cos(angle);
-        const z = 20 * std.math.sin(angle);
-        const y = 0;
-        // const camera_position = zlm.Vec3.new(x, y, z);
-        const camera_position = zlm.Vec3.new(x, y, z);
-
-        const window_size = window.getFramebufferSize();
-        const window_width: f32 = @floatFromInt(window_size.width);
-        const window_height: f32 = @floatFromInt(window_size.height);
-
-        const view = zlm.Mat4.createLook(camera_position, (target.sub(camera_position)).normalize(), zlm.Vec3.new(0.0, 1.0, 0.0));
-        const proj = zlm.Mat4.createPerspective((PI / 180.0) * 90.0, window_width / window_height, 1, 1000);
-        // std.debug.print("{d}\n{any}\n{any}\n\n", .{d, view.invert(), proj.invert()});
-
-        const camera = Camera{ .view_matrix = view, .proj_matrix = proj, .screen_size = .{ window_width, window_height, 0.0, 0.0 } };
-
-        try uniform_buffers[swapchain.image_index].write(&gc, &.{ camera });
+        try uniform_buffers[swapchain.image_index].write(&gc, &.{ camera_controller.camera });
 
         const state = swapchain.present(cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
@@ -420,7 +394,9 @@ pub fn main() !void {
         };
 
         if (state == .suboptimal) {
-            const size = window.getSize();
+            window.emitResizeEvent();
+
+            const size = window.glfw_window.getSize();
             extent.width = @intCast(size.width);
             extent.height = @intCast(size.height);
             try swapchain.recreate(extent);

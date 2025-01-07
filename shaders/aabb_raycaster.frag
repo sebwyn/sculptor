@@ -12,27 +12,23 @@ layout(binding=0) uniform uniform_buffer {
 
 layout(binding=1) uniform sampler3D voxels;
 
-bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin) {
+bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin, out vec3 outNormal) {
     vec3 t0s = (cubeMin - ro) * rd_inv;
     vec3 t1s = (cubeMax - ro) * rd_inv;
     vec3 tsmaller = min(t0s, t1s);
     vec3 tbigger = max(t0s, t1s);
+
     float tmin = max(tsmaller.x, max(tsmaller.y, tsmaller.z));
     float tmax = min(tbigger.x, min(tbigger.y, tbigger.z));
-    bool intersection = tmax >= max(tmin, 0.0);
     outTmin = max(tmin,0.0);
-    return intersection;
+    outNormal = max(-2*step(t0s, t1s)+1, 0.2) * (step(tsmaller.zxy, tsmaller.xyz) * step(tsmaller.yzx, tsmaller.xyz));
+    return tmax >= max(tmin, 0.0);
 }
 
 
 float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   vec3 texCoord = (pos + halfGridSize) / gridSize;
   return texture(voxels, texCoord).r;
-}
-
-
-float frac(float x) {
-  return x - floor(x);
 }
 
 void main() {
@@ -50,11 +46,10 @@ void main() {
   vec3 cameraPos = near;
   vec3 ray = normalize(far-near);
 
-  float tMin = 0.0;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin)) {
-      f_color = vec4(0.0);
-      return;
-  }
+  float tMin;
+  vec3 bboxNormal;
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); return; }
+  
   vec3 startPos = cameraPos + ray * tMin;
   vec3 voxelPos = floor(startPos);
   vec3 grid_delta = sign(ray);
@@ -64,7 +59,7 @@ void main() {
 
   int iterations = 0;
   float voxel = getVoxel(voxelPos, gridSize, halfGridSize);
-  vec3 normal = vec3(0);
+  vec3 normal = bboxNormal;
   float tIntersection = -1;
   for (int i = 0; i < 100; ++i) {
     vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
@@ -82,7 +77,8 @@ void main() {
   vec3 lightPos = vec3(20, 20, 20);
   vec3 pos = startPos + ray * tIntersection;
   f_color = (tIntersection > 0) ? 
-    vec4(vec3(0.2) + max(vec3(0.7, 0.3, 0.4) * dot(normalize(lightPos - pos), normal), vec3(0)), 1.0)
+    vec4(max(normal, 0.2), 1.0)
+    //vec4(vec3(0.2) + max(vec3(0.7, 0.3, 0.4) * dot(normalize(lightPos - pos), normal), vec3(0)), 1.0)
     : vec4(0.0);
 }
 
