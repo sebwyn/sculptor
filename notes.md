@@ -47,3 +47,11 @@
 ## Other inspiration
 
  - [Rujik the comatose](https://www.youtube.com/@RujiKtheComatose): does some super sick SDF procedural animation all in game maker with his game "Critter Crosser"
+
+## Procedural generation experiments
+
+ - 3d terrain generation with erosion simulation
+ - fractals could be interesting
+ - procedurall generated dungeons, could be used in a roguelike
+ - procedural planets
+

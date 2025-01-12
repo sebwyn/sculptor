@@ -11,6 +11,7 @@ layout(binding=0) uniform uniform_buffer {
 } uniforms; 
 
 layout(binding=1) uniform sampler3D voxels;
+layout(binding=2) uniform sampler1D palette; 
 
 bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin, out vec3 outNormal) {
     vec3 t0s = (cubeMin - ro) * rd_inv;
@@ -77,7 +78,7 @@ void main() {
   vec3 lightPos = vec3(20, 20, 20);
   vec3 pos = startPos + ray * tIntersection;
   f_color = (tIntersection > 0) ? 
-    vec4(max(normal, 0.2), 1.0)
+    texture(palette, voxel)
     //vec4(vec3(0.2) + max(vec3(0.7, 0.3, 0.4) * dot(normalize(lightPos - pos), normal), vec3(0)), 1.0)
     : vec4(0.0);
 }

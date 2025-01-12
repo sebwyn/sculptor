@@ -10,6 +10,8 @@ const Allocator = std.mem.Allocator;
 const Window = @import("window.zig").Window;
 const CameraController = @import("camera_controller.zig").CameraController;
 const Camera = @import("camera_controller.zig").Camera;
+const Texture1d = @import("texture1d.zig").Texture1d;
+const Texture3d = @import("texture3d.zig").Texture3d;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
 
@@ -39,159 +41,6 @@ const Vertex = struct {
     color: [3]f32,
 };
 
-const Texture3dError = error{ UnsupportedDevice, UnsupportedSize, BadDataFormat };
-
-const Texture3d = struct {
-    sampler: vk.Sampler,
-    image: vk.Image,
-    image_layout: vk.ImageLayout,
-    descriptor: vk.DescriptorImageInfo,
-    view: vk.ImageView,
-    memory: vk.DeviceMemory,
-    format: vk.Format,
-
-    width: u32,
-    height: u32,
-    depth: u32,
-
-    pub fn init(gc: *const GraphicsContext, width: u32, height: u32, depth: u32) !Texture3d {
-        const format: vk.Format = .r8_unorm;
-        const initial_layout: vk.ImageLayout = .undefined;
-
-        const physical_properties = gc.vki.getPhysicalDeviceFormatProperties(gc.pdev, format);
-        if (!physical_properties.optimal_tiling_features.contains(.{ .transfer_dst_bit = true })) {
-            return error.UnsupportedDevice;
-        }
-
-        const max_texture_size = gc.vki.getPhysicalDeviceProperties(gc.pdev).limits.max_image_dimension_3d;
-        if (width > max_texture_size or height > max_texture_size or depth > max_texture_size) {
-            return error.UnsupportedSize;
-        }
-
-        const image_create_info: vk.ImageCreateInfo = .{
-            .image_type = .@"3d",
-            .format = format,
-            .mip_levels = 1,
-            .array_layers = 1,
-            .samples = .{ .@"1_bit" = true },
-            .tiling = .optimal,
-            .sharing_mode = .exclusive,
-            .extent = .{ .width = width, .height = height, .depth = depth },
-            .initial_layout = initial_layout,
-            .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
-        };
-
-        const image = try gc.vkd.createImage(gc.dev, &image_create_info, null);
-        errdefer gc.vkd.destroyImage(gc.dev, image, null);
-
-        const memory_requirements = gc.vkd.getImageMemoryRequirements(gc.dev, image);
-        const memory = try gc.allocate(memory_requirements, .{ .device_local_bit = true });
-        errdefer gc.vkd.freeMemory(gc.dev, memory, null);
-
-        try gc.vkd.bindImageMemory(gc.dev, image, memory, 0);
-
-        const sampler_create_info: vk.SamplerCreateInfo = .{
-            .mag_filter = .nearest,
-            .min_filter = .nearest,
-            .mipmap_mode = .nearest,
-            .address_mode_u = .clamp_to_edge,
-            .address_mode_v = .clamp_to_edge,
-            .address_mode_w = .clamp_to_edge,
-            .mip_lod_bias = 0.0,
-            .compare_op = .never,
-            .compare_enable = @intFromBool(false),
-            .min_lod = 0.0,
-            .max_lod = 0.0,
-            .max_anisotropy = 1.0,
-            .anisotropy_enable = @intFromBool(false),
-            .border_color = .int_transparent_black,
-            .unnormalized_coordinates = @intFromBool(false),
-        };
-        const sampler = try gc.vkd.createSampler(gc.dev, &sampler_create_info, null);
-        errdefer gc.vkd.destroySampler(gc.dev, sampler, null);
-
-        const image_view_create_info: vk.ImageViewCreateInfo = .{ .image = image, .view_type = .@"3d", .format = format, .subresource_range = .{
-            .aspect_mask = .{ .color_bit = true },
-            .base_mip_level = 0,
-            .base_array_layer = 0,
-            .layer_count = 1,
-            .level_count = 1,
-        }, .components = .{ .r = .r, .g = .g, .b = .b, .a = .a } };
-        const image_view = try gc.vkd.createImageView(gc.dev, &image_view_create_info, null);
-        errdefer gc.vkd.destroyImageView(gc.dev, image_view, null);
-
-        const descriptor = vk.DescriptorImageInfo{
-            .image_layout = .shader_read_only_optimal,
-            .sampler = sampler,
-            .image_view = image_view,
-        };
-
-        return Texture3d{
-            .sampler = sampler,
-            .image = image,
-            .image_layout = initial_layout,
-            .descriptor = descriptor,
-            .view = image_view,
-            .memory = memory,
-            .format = format,
-            .width = width,
-            .height = height,
-            .depth = depth,
-        };
-    }
-
-    pub fn write(self: *Texture3d, gc: *const GraphicsContext, pool: vk.CommandPool, data: []u8) !void {
-        const expected_size = self.width * self.height * self.depth;
-        if (data.len != expected_size) {
-            return error.BadDataFormat;
-        }
-
-        const staging_buffer = try gc.writeStagingBuffer(u8, data);
-        defer staging_buffer.deinit(gc);
-
-        const command_buffer = try gc.beginSingleTimeCommands(pool);
-
-        const subresource_range: vk.ImageSubresourceRange = .{
-            .aspect_mask = .{ .color_bit = true },
-            .base_mip_level = 0,
-            .base_array_layer = 0,
-            .layer_count = 1,
-            .level_count = 1,
-        };
-
-        try gc.transitionImageLayout(command_buffer, self.image, subresource_range, .undefined, .transfer_dst_optimal);
-
-        const buffer_image_copy: vk.BufferImageCopy = .{
-            .image_subresource = .{
-                .aspect_mask = .{ .color_bit = true },
-                .mip_level = 0,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .image_extent = .{
-                .width = self.width,
-                .height = self.height,
-                .depth = self.depth,
-            },
-            .buffer_offset = 0,
-            .buffer_row_length = self.width,
-            .buffer_image_height = self.height,
-            .image_offset = .{ .x = 0, .y = 0, .z = 0 },
-        };
-        gc.vkd.cmdCopyBufferToImage(command_buffer, staging_buffer.vk_handle, self.image, .transfer_dst_optimal, 1, @ptrCast(&buffer_image_copy));
-
-        try gc.transitionImageLayout(command_buffer, self.image, subresource_range, .transfer_dst_optimal, .shader_read_only_optimal);
-
-        try gc.endSingleTimeCommands(pool, command_buffer, gc.graphics_queue.handle);
-    }
-
-    pub fn deinit(self: Texture3d, gc: *const GraphicsContext) void {
-        gc.vkd.destroyImageView(gc.dev, self.view, null);
-        gc.vkd.destroyImage(gc.dev, self.image, null);
-        gc.vkd.destroySampler(gc.dev, self.sampler, null);
-        gc.vkd.freeMemory(gc.dev, self.memory, null);
-    }
-};
 
 const vertices = [_]Vertex{
     .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
@@ -201,7 +50,6 @@ const vertices = [_]Vertex{
     .{ .pos = .{ 1.0, -1.0 }, .color = .{ 0, 1, 0 } },
     .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 0, 1 } },
 };
-
 
 /// Default GLFW error handling callback
 fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
@@ -239,7 +87,7 @@ pub fn main() !void {
     defer swapchain.deinit();
     
     const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
-        .binding_count = 2,
+        .binding_count = 3,
         .flags = .{},
         .p_bindings = &.{
             .{
@@ -251,6 +99,12 @@ pub fn main() !void {
             .{
                 .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
                 .binding = 1,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+            },
+            .{
+                .stage_flags = vk.ShaderStageFlags { .fragment_bit = true },
+                .binding = 2,
                 .descriptor_type = .combined_image_sampler,
                 .descriptor_count = 1,
             }
@@ -282,9 +136,11 @@ pub fn main() !void {
     }, null);
     defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
 
+    var voxel_palette = try Texture1d.init(&gc, 255);
+    defer voxel_palette.deinit(&gc);
+
     var voxels = try Texture3d.init(&gc, 32, 32, 32);
     defer voxels.deinit(&gc);
-    
 
     var initialized_uniform_buffers: usize = 0;
     var uniform_buffers = try allocator.alloc(GraphicsContext.Buffer(Camera), framebuffers.len);
@@ -302,7 +158,7 @@ pub fn main() !void {
     }
 
     const camera_descriptor_size: vk.DescriptorPoolSize =  .{ .type = .uniform_buffer, .descriptor_count = @intCast(framebuffers.len) };
-    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = @intCast(framebuffers.len) };
+    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = 2 * @as(u32, @intCast(framebuffers.len)) };
     const descriptor_pool_info: vk.DescriptorPoolCreateInfo = .{  
         .max_sets = @intCast(framebuffers.len),
         .pool_size_count = 2,
@@ -335,18 +191,30 @@ pub fn main() !void {
             .p_image_info = &[_]vk.DescriptorImageInfo{},
             .p_texel_buffer_view = &[_]vk.BufferView{} 
         };
-        const texture_write_descriptor = vk.WriteDescriptorSet{ 
+        const voxels_write_descriptor = vk.WriteDescriptorSet{ 
             .descriptor_type = .combined_image_sampler,
             .dst_set = descriptor_sets[i],
             .dst_binding = 1,
             .dst_array_element = 0,
             .descriptor_count = 1,
-            .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()},
+            .p_buffer_info = undefined,
             .p_image_info = @ptrCast(&voxels.descriptor),
             .p_texel_buffer_view = @ptrCast(&voxels.view),
         };
-        gc.vkd.updateDescriptorSets(gc.dev, 2, &.{ camera_write_descriptor, texture_write_descriptor }, 0, null);
+        const voxel_palette_write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .combined_image_sampler,
+            .dst_set = descriptor_sets[i],
+            .dst_binding = 2,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .p_buffer_info = undefined,
+            .p_image_info = @ptrCast(&voxel_palette.descriptor),
+            .p_texel_buffer_view = @ptrCast(&voxel_palette.view),
+        };
+        gc.vkd.updateDescriptorSets(gc.dev, 3, &.{ camera_write_descriptor, voxels_write_descriptor, voxel_palette_write_descriptor }, 0, null);
     }
+
+    var rand = std.rand.DefaultPrng.init(0);
 
     var voxel_data: [32 * 32 * 32]u8 = undefined;
     for (0..32) |z| {
@@ -357,11 +225,16 @@ pub fn main() !void {
                 const yf = @as(f32, @floatFromInt(y)) + 0.5 - 16;
                 const zf = @as(f32, @floatFromInt(z)) + 0.5 - 16;
                 const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
-                voxel_data[texture_index] = 255 * @as(u8, @intFromBool(dist_from_origin < 8));
+                voxel_data[texture_index] = rand.random().int(u8) * @as(u8, @intFromBool(dist_from_origin < 8));
             }
         }
     }
+
+    var palette_data: [255][4]u8 = undefined;
+    for (0..255) |i| { palette_data[i] = .{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 }; }
+
     try voxels.write(&gc, pool, &voxel_data);
+    try voxel_palette.write(&gc, pool, &palette_data);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
