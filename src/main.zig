@@ -232,9 +232,10 @@ pub fn main() !void {
     }
 
     var palette_data = Ndarray(u8).init(&.{ 255, 4 }, allocator);
+    defer palette_data.deinit();
     for (0..255) |i| { 
-        var color = palette_data.slice(&.{i});
-        color.write(&.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 }); 
+        const color = &.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 };
+        palette_data.slice(&.{i}).write(color); 
     }
 
     try voxels.write(&gc, pool, &voxel_data);

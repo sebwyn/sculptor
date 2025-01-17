@@ -39,7 +39,7 @@ pub fn NdarrayView(T: type) type {
             };
         }
 
-        pub fn write(self: *Self, data: []const T) void {
+        pub fn write(self: *const Self, data: []const T) void {
             @memcpy(self.buffer, data);
         }
     };
@@ -62,7 +62,7 @@ pub fn Ndarray(T: type) type {
                 current_stride /= axis_len;
                 strides[i] = current_stride;
             }
-
+            
             const owned_shape = allocator.alloc(usize, shape_.len) catch unreachable;
             @memcpy(owned_shape, shape_);
 
@@ -94,7 +94,7 @@ pub fn Ndarray(T: type) type {
         pub inline fn shape(self: *const Self ) []const usize { return self.ndarray_view.shape; }
         pub inline fn buffer(self: *const Self) []const T { return self.ndarray_view.buffer; }
 
-        fn deinit(self: Self) void {
+        pub fn deinit(self: Self) void {
             self.allocator.free(self.ndarray_view.shape);
             self.allocator.free(self.ndarray_view.strides);
             self.allocator.free(self.ndarray_view.buffer);
@@ -103,7 +103,7 @@ pub fn Ndarray(T: type) type {
         pub fn fill(self: *Self, fill_value: []usize) void { self.ndarray_view.fill(fill_value); }
         pub fn at(self: *const Self, index: []const usize) *T { return self.ndarray_view.at(index); }
         pub fn slice(self: *const Self, index: []const usize) NdarrayView(T) { return self.ndarray_view.slice(index); }
-        pub fn write(self: *Self, data: []const T) void { return self.ndarray_view.write(data); }
+        pub fn write(self: *const Self, data: []const T) void { return self.ndarray_view.write(data); }
 
     };
 }
@@ -168,6 +168,8 @@ test "Ndarray indexing" {
     for (0..2) |x| { for (0..2) |y| { for (0..4) |z| {
         array.at(&[_]usize{ x, y, z }).* = trash_multidimensional_array[x][y][z];
     }}}
+
+    try std.testing.expectEqual('g', array.slice(&.{0}).at(&.{1, 2}).*);
 
     try std.testing.expectEqual('g', array.at(&.{ 0, 1, 2 }).*);
     try std.testing.expectEqualDeep(&[_]u8{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'}, array.buffer()[0..9]);
