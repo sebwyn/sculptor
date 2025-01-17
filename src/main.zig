@@ -2,16 +2,17 @@ const std = @import("std");
 const glfw = @import("mach-glfw");
 const vk = @import("vulkan");
 const zlm = @import("zlm").SpecializeOn(f32);
+
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const triangle_vert = @embedFile("triangle_vert");
 const triangle_frag = @embedFile("aabb_raycaster_frag");
-const Allocator = std.mem.Allocator;
+
 const Window = @import("window.zig").Window;
 const CameraController = @import("camera_controller.zig").CameraController;
 const Camera = @import("camera_controller.zig").Camera;
-const Texture1d = @import("texture1d.zig").Texture1d;
-const Texture3d = @import("texture3d.zig").Texture3d;
+const Texture = @import("texture.zig").Texture;
+const Ndarray = @import("ndarray.zig").Ndarray;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
 
@@ -136,10 +137,10 @@ pub fn main() !void {
     }, null);
     defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
 
-    var voxel_palette = try Texture1d.init(&gc, 255);
+    var voxel_palette = try Texture(1).init(&gc, .r8g8b8a8_srgb, .{ 255 });
     defer voxel_palette.deinit(&gc);
 
-    var voxels = try Texture3d.init(&gc, 32, 32, 32);
+    var voxels = try Texture(3).init(&gc, .r8_unorm, .{ 32, 32, 32 });
     defer voxels.deinit(&gc);
 
     var initialized_uniform_buffers: usize = 0;
@@ -230,11 +231,14 @@ pub fn main() !void {
         }
     }
 
-    var palette_data: [255][4]u8 = undefined;
-    for (0..255) |i| { palette_data[i] = .{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 }; }
+    var palette_data = Ndarray(u8).init(&.{ 255, 4 }, allocator);
+    for (0..255) |i| { 
+        var color = palette_data.slice(&.{i});
+        color.write(&.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 }); 
+    }
 
     try voxels.write(&gc, pool, &voxel_data);
-    try voxel_palette.write(&gc, pool, &palette_data);
+    try voxel_palette.write(&gc, pool, palette_data.buffer());
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
@@ -309,7 +313,7 @@ fn uploadVertices(gc: *const GraphicsContext, pool: vk.CommandPool, buffer: Grap
 fn createCommandBuffers(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
-    allocator: Allocator,
+    allocator: std.mem.Allocator,
     buffer: vk.Buffer,
     extent: vk.Extent2D,
     render_pass: vk.RenderPass,
@@ -355,7 +359,6 @@ fn createCommandBuffers(
         gc.vkd.cmdSetViewport(cmdbuf, 0, 1, @as([*]const vk.Viewport, @ptrCast(&viewport)));
         gc.vkd.cmdSetScissor(cmdbuf, 0, 1, @as([*]const vk.Rect2D, @ptrCast(&scissor)));
 
-        // This needs to be a separate definition - see https://github.com/ziglang/zig/issues/7627.
         const render_area = vk.Rect2D{
             .offset = .{ .x = 0, .y = 0 },
             .extent = extent,
@@ -382,12 +385,12 @@ fn createCommandBuffers(
     return cmdbufs;
 }
 
-fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, allocator: Allocator, cmdbufs: []vk.CommandBuffer) void {
+fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, allocator: std.mem.Allocator, cmdbufs: []vk.CommandBuffer) void {
     gc.vkd.freeCommandBuffers(gc.dev, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
     allocator.free(cmdbufs);
 }
 
-fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
+fn createFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, render_pass: vk.RenderPass, swapchain: Swapchain) ![]vk.Framebuffer {
     const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
     errdefer allocator.free(framebuffers);
 
@@ -410,7 +413,7 @@ fn createFramebuffers(gc: *const GraphicsContext, allocator: Allocator, render_p
     return framebuffers;
 }
 
-fn destroyFramebuffers(gc: *const GraphicsContext, allocator: Allocator, framebuffers: []const vk.Framebuffer) void {
+fn destroyFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, framebuffers: []const vk.Framebuffer) void {
     for (framebuffers) |fb| gc.vkd.destroyFramebuffer(gc.dev, fb, null);
     allocator.free(framebuffers);
 }
