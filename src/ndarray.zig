@@ -141,12 +141,8 @@ test "Ndarray writing to a view modifies the ndarray" {
     defer array.deinit();
     array.write(&[_]u8{ 0, 1, 4, 5, 11, 12 });
 
-    var slice1 = array.slice(&.{1});
-    slice1.write(&.{2, 3});
-
-    var slice2 = array.slice(&.{2});
-    slice2.write(&.{4, 5});
-
+    array.slice(&.{1}).write(&.{4, 5});
+    array.slice(&.{2}).write(&.{4, 5});
     try std.testing.expectEqualDeep(&[_]u8{ 0, 1, 2, 3, 4, 5 }, array.buffer());
 }
 
