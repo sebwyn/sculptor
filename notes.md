@@ -54,4 +54,13 @@
  - fractals could be interesting
  - procedurall generated dungeons, could be used in a roguelike
  - procedural planets
+ - [buildings/structures: markov chains](https://nickmcd.me/2019/10/30/markov-chains-for-procedural-buildings/)
 
+## AI Experiments
+
+ - simulating a ton of simple entities in a world [task-bot example](https://nickmcd.me/2019/03/08/modular-memory-driven-task-bots/)
+
+## Ideas for improving the graphics API
+
+ - Could certain objects like pipelines be encoded in more a config structure [see libconfig](https://hyperrealm.github.io/libconfig/)
+ - Improving rendering performance: [GDC talk](https://gdcvault.com/play/1020791/)
