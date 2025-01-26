@@ -43,7 +43,6 @@ const Vertex = struct {
     color: [3]f32,
 };
 
-
 const vertices = [_]Vertex{
     .{ .pos = .{ -1.0, -1.0 }, .color = .{ 1, 0, 0 } },
     .{ .pos = .{ 1.0, 1.0 }, .color = .{ 0, 1, 0 } },
@@ -60,81 +59,89 @@ fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
 
 const PI = 3.14159265;
 
-const VoxelMesh = struct {
-    transform: zlm.Mat4,
-    palette: Texture(1),
-    voxels: Texture(3),
+const VoxelObjectFactory = struct {
+    gc: *const GraphicsContext,
+    command_pool: vk.CommandPool,
+    allocator: std.mem.Allocator,
 
-    fn empty(gc: *const GraphicsContext, size: [3]u32) !VoxelMesh {
-        const palette = try Texture(1).init(gc, .r8g8b8a8_srgb, .{ 255 });
-        errdefer palette.deinit(gc);
-        const voxels = try Texture(3).init(gc, .r8_unorm, size);
-        errdefer voxels.deinit(gc);
-        
-        return VoxelMesh {
+    descriptor_set_layout: vk.DescriptorSetLayout,
+
+    pub fn init(gc: *const GraphicsContext, command_pool: vk.CommandPool, allocator: std.mem.Allocator) !VoxelObjectFactory {
+        const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
+            .binding_count = 3,
+            .flags = .{},
+            .p_bindings = &.{ .{
+                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                .binding = 1,
+                .descriptor_type = .uniform_buffer,
+                .descriptor_count = 1,
+            }, .{
+                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                .binding = 2,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+            }, .{
+                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                .binding = 3,
+                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+            } },
+        }, null);
+
+        return VoxelObjectFactory{ .gc = gc, .command_pool = command_pool, .allocator = allocator, .descriptor_set_layout = descriptor_set_layout };
+    }
+
+    pub fn deinit(self: *const VoxelObjectFactory) void {
+        self.gc.vkd.destroyDescriptorSetLayout(self.gc.dev, self.descriptor_set_layout, null);
+    }
+
+    fn createEmpty(self: *const VoxelObjectFactory, size: [3]u32) !VoxelObject {
+        const palette = try Texture(1).init(self.gc, .r8g8b8a8_srgb, .{255});
+        errdefer palette.deinit(self.gc);
+        const voxels = try Texture(3).init(self.gc, .r8_unorm, size);
+        errdefer voxels.deinit(self.gc);
+
+        return VoxelObject{
             .transform = zlm.Mat4.identity,
             .palette = palette,
             .voxels = voxels,
         };
     }
 
-    fn sphere(gc: *const GraphicsContext, size: [3]u32, command_pool: vk.CommandPool) !VoxelMesh {
-        var mesh = try VoxelMesh.empty(gc, size);
-        
-        var write_context: Texture(3).WriteContext = try mesh.voxels.beginWrite(gc);
+    pub fn createSphere(self: *const VoxelObjectFactory, object_size: [3]u32, radius: f32) !VoxelObject {
+        var mesh = try self.createEmpty(object_size);
+        var staging_buffer = try mesh.voxels.createStagingBuffer(self.gc, self.allocator);
+        defer staging_buffer.deinit(self.gc);
 
         var rand = std.rand.DefaultPrng.init(0);
-        var voxel_data: NdarrayView(u8) = write_context.getMutableArray();
-        for (0..voxel_data.shape[0]) |x| {
-            for (0..voxel_data.shape[1]) |y| {
-                for (0..voxel_data.shape[2]) |z| {
+        for (0..staging_buffer.shape()[0]) |x| {
+            for (0..staging_buffer.shape()[1]) |y| {
+                for (0..staging_buffer.shape()[2]) |z| {
                     const xf = @as(f32, @floatFromInt(x)) + 0.5 - 16;
                     const yf = @as(f32, @floatFromInt(y)) + 0.5 - 16;
                     const zf = @as(f32, @floatFromInt(z)) + 0.5 - 16;
                     const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
-                    voxel_data.at(&.{ x, y, z}).* = rand.random().int(u8) * @as(u8, @intFromBool(dist_from_origin < 8));
+                    staging_buffer.at(&.{ x, y, z }).* = rand.random().int(u8) * @as(u8, @intFromBool(dist_from_origin < radius));
                 }
             }
         }
-        try write_context.write(gc, command_pool);
-
+        try mesh.voxels.writeStagingBuffer(self.gc, self.command_pool, staging_buffer);
         return mesh;
     }
+};
 
-    fn deinit(self: *const VoxelMesh, gc: *const GraphicsContext) void {
+const VoxelObject = struct {
+    transform: zlm.Mat4,
+    palette: Texture(1),
+    voxels: Texture(3),
+
+    fn deinit(self: *const VoxelObject, gc: *const GraphicsContext) void {
         self.palette.deinit(gc);
         self.voxels.deinit(gc);
     }
 
-    fn create_descriptor_layout(gc: *const GraphicsContext) !vk.DescriptorSetLayout {
-        return try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
-            .binding_count = 3,
-            .flags = .{},
-            .p_bindings = &.{
-                .{
-                    .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
-                    .binding = 1,
-                    .descriptor_type = .uniform_buffer,
-                    .descriptor_count = 1,
-                },
-                .{
-                    .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
-                    .binding = 2,
-                    .descriptor_type = .combined_image_sampler,
-                    .descriptor_count = 1,
-                },
-                .{
-                    .stage_flags = vk.ShaderStageFlags { .fragment_bit = true },
-                    .binding = 3,
-                    .descriptor_type = .combined_image_sampler,
-                    .descriptor_count = 1,
-                }
-            },
-        }, null);
-    }
-
-    fn update_descriptor_set(self: *const VoxelMesh, gc: *const GraphicsContext, descriptor_set: vk.DescriptorSet) void {
-        const voxels_write_descriptor = vk.WriteDescriptorSet{ 
+    fn update_descriptor_set(self: *const VoxelObject, gc: *const GraphicsContext, descriptor_set: vk.DescriptorSet) void {
+        const voxels_write_descriptor = vk.WriteDescriptorSet{
             .descriptor_type = .combined_image_sampler,
             .dst_set = descriptor_set,
             .dst_binding = 2,
@@ -144,7 +151,7 @@ const VoxelMesh = struct {
             .p_image_info = @ptrCast(&self.voxels.descriptor),
             .p_texel_buffer_view = @ptrCast(&self.voxels.view),
         };
-        const voxel_palette_write_descriptor = vk.WriteDescriptorSet{ 
+        const voxel_palette_write_descriptor = vk.WriteDescriptorSet{
             .descriptor_type = .combined_image_sampler,
             .dst_set = descriptor_set,
             .dst_binding = 3,
@@ -167,19 +174,30 @@ pub fn main() !void {
     defer glfw.terminate();
 
     var extent = vk.Extent2D{ .width = 800, .height = 600 };
-    
-    var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
-    defer if (gpa.deinit() == .leak) { @panic("Your leaking dog"); };
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer if (gpa.deinit() == .leak) {
+        @panic("Your leaking dog");
+    };
     const general_allocator = gpa.allocator();
     var window = try Window.init(general_allocator, 800, 600, "sculptor");
     defer window.deinit();
-    
+
     var camera_controller = CameraController.init(&window);
     camera_controller.registerWithEvents(&window);
 
     const allocator = std.heap.page_allocator;
     const gc = try GraphicsContext.init(allocator, app_name, window.glfw_window);
     defer gc.deinit();
+
+    const pool = try gc.vkd.createCommandPool(gc.dev, &.{
+        .flags = .{},
+        .queue_family_index = gc.graphics_queue.family,
+    }, null);
+    defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
+
+    const voxel_object_factory = try VoxelObjectFactory.init(&gc, pool, allocator);
+    defer voxel_object_factory.deinit();
 
     std.debug.print("Using device: {?s}\n", .{gc.props.device_name});
 
@@ -199,14 +217,13 @@ pub fn main() !void {
         },
     }, null);
     defer gc.vkd.destroyDescriptorSetLayout(gc.dev, camera_descriptor_layout, null);
-    
-    const voxel_mesh_descriptor_layout = try VoxelMesh.create_descriptor_layout(&gc);
-    defer gc.vkd.destroyDescriptorSetLayout(gc.dev, voxel_mesh_descriptor_layout, null);
+
+    const voxel_mesh_descriptor_layout = voxel_object_factory.descriptor_set_layout;
 
     const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
         .flags = .{},
         .set_layout_count = 2,
-        .p_set_layouts = &.{camera_descriptor_layout, voxel_mesh_descriptor_layout},
+        .p_set_layouts = &.{ camera_descriptor_layout, voxel_mesh_descriptor_layout },
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);
@@ -220,13 +237,6 @@ pub fn main() !void {
 
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain);
     defer destroyFramebuffers(&gc, allocator, framebuffers);
-
-    const pool = try gc.vkd.createCommandPool(gc.dev, &.{
-        .flags = .{},
-        .queue_family_index = gc.graphics_queue.family,
-    }, null);
-    defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
-
 
     var initialized_uniform_buffers: usize = 0;
     var uniform_buffers = try allocator.alloc(GraphicsContext.Buffer(Camera), framebuffers.len);
@@ -243,17 +253,13 @@ pub fn main() !void {
         initialized_uniform_buffers += 1;
     }
 
-    const camera_descriptor_size: vk.DescriptorPoolSize =  .{ .type = .uniform_buffer, .descriptor_count = @intCast(2*framebuffers.len) };
-    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = @intCast(2*framebuffers.len) };
+    const camera_descriptor_size: vk.DescriptorPoolSize = .{ .type = .uniform_buffer, .descriptor_count = @intCast(2 * framebuffers.len) };
+    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = @intCast(2 * framebuffers.len) };
 
-    const descriptor_pool_info: vk.DescriptorPoolCreateInfo = .{  
-        .max_sets = @intCast(2*framebuffers.len),
-        .pool_size_count = 2,
-        .p_pool_sizes = &.{ camera_descriptor_size, texture_descriptor_size } 
-    };
-    const descriptor_pool = try gc.vkd.createDescriptorPool( gc.dev, &descriptor_pool_info, null);
+    const descriptor_pool_info: vk.DescriptorPoolCreateInfo = .{ .max_sets = @intCast(2 * framebuffers.len), .pool_size_count = 2, .p_pool_sizes = &.{ camera_descriptor_size, texture_descriptor_size } };
+    const descriptor_pool = try gc.vkd.createDescriptorPool(gc.dev, &descriptor_pool_info, null);
     defer gc.vkd.destroyDescriptorPool(gc.dev, descriptor_pool, null);
-    
+
     const camera_descriptor_layouts = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
     defer allocator.free(camera_descriptor_layouts);
     @memset(camera_descriptor_layouts, camera_descriptor_layout);
@@ -268,17 +274,8 @@ pub fn main() !void {
     }, camera_descriptor_sets.ptr);
 
     for (0..framebuffers.len) |i| {
-        const camera_write_descriptor = vk.WriteDescriptorSet{ 
-            .descriptor_type = .uniform_buffer,
-            .dst_set = camera_descriptor_sets[i],
-            .dst_binding = 0,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()},
-            .p_image_info = &[_]vk.DescriptorImageInfo{},
-            .p_texel_buffer_view = &[_]vk.BufferView{} 
-        };
-        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{ camera_write_descriptor }, 0, null);
+        const camera_write_descriptor = vk.WriteDescriptorSet{ .descriptor_type = .uniform_buffer, .dst_set = camera_descriptor_sets[i], .dst_binding = 0, .dst_array_element = 0, .descriptor_count = 1, .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()}, .p_image_info = &[_]vk.DescriptorImageInfo{}, .p_texel_buffer_view = &[_]vk.BufferView{} };
+        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{camera_write_descriptor}, 0, null);
     }
 
     const voxel_mesh_descriptor_layouts = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
@@ -292,27 +289,29 @@ pub fn main() !void {
         .p_set_layouts = voxel_mesh_descriptor_layouts.ptr,
         .descriptor_set_count = @intCast(framebuffers.len),
     }, voxel_mesh_descriptor_sets.ptr);
-    
-    var voxel_mesh = try VoxelMesh.sphere(&gc, .{32, 32, 32}, pool);
+
+    var voxel_mesh = try voxel_object_factory.createSphere(.{ 32, 32, 32 }, 8.0);
     defer voxel_mesh.deinit(&gc);
 
-    for (voxel_mesh_descriptor_sets) |descriptor_set| { voxel_mesh.update_descriptor_set(&gc, descriptor_set); }
-
-    var rand = std.rand.DefaultPrng.init(0);
-
-    const write_context = try voxel_mesh.palette.beginWrite(&gc);
-    var palette_data = write_context.getMutableArray();
-    for (0..palette_data.shape[0]) |i| { 
-        const color = &.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 };
-        palette_data.slice(&.{i}).write(color); 
+    for (voxel_mesh_descriptor_sets) |descriptor_set| {
+        voxel_mesh.update_descriptor_set(&gc, descriptor_set);
     }
-    try write_context.write(&gc, pool);
+
+    {
+        var rand = std.rand.DefaultPrng.init(0);
+        const palette_staging_buffer = try voxel_mesh.palette.createStagingBuffer(&gc, allocator);
+        defer palette_staging_buffer.deinit(&gc);
+        for (0..palette_staging_buffer.shape()[0]) |i| {
+            const color = &.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 };
+            palette_staging_buffer.slice(&.{i}).write(color);
+        }
+        try voxel_mesh.palette.writeStagingBuffer(&gc, pool, palette_staging_buffer);
+    }
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
 
     try uploadVertices(&gc, pool, vertex_buffer);
-
 
     var cmdbufs = try createCommandBuffers(
         &gc,
@@ -332,7 +331,7 @@ pub fn main() !void {
     while (!window.glfw_window.shouldClose()) {
         const cmdbuf = cmdbufs[swapchain.image_index];
 
-        try uniform_buffers[swapchain.image_index].write(&gc, &.{ camera_controller.camera });
+        try uniform_buffers[swapchain.image_index].write(&gc, &.{camera_controller.camera});
 
         const state = swapchain.present(cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,

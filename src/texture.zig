@@ -1,3 +1,4 @@
+const std = @import("std");
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const vk = @import("vulkan");
 const NdarrayView = @import("ndarray.zig").NdarrayView;
@@ -6,40 +7,45 @@ const Texture3dError = error{ UnsupportedDevice, UnsupportedSize, BadDataFormat 
 
 fn textureSizeSupported(comptime dims: comptime_int, gc: *const GraphicsContext, size: [3]u32) bool {
     const device_limits = gc.vki.getPhysicalDeviceProperties(gc.pdev).limits;
-    const max_texture_size = switch(dims) {
+    const max_texture_size = switch (dims) {
         3 => device_limits.max_image_dimension_3d,
         2 => device_limits.max_image_dimension_2d,
         1 => device_limits.max_image_dimension_1d,
-        else => @panic("Texture was only expecting 1 to 3 dimenions")
+        else => @panic("Texture was only expecting 1 to 3 dimenions"),
     };
     return size[0] < max_texture_size and size[1] < max_texture_size and size[2] < max_texture_size;
 }
 
 fn imageTypeForDimensions(comptime dimensions: comptime_int) vk.ImageType {
-    return switch (dimensions) { 
+    return switch (dimensions) {
         3 => .@"3d",
         2 => .@"2d",
         1 => .@"1d",
-        else => @panic("Texture was only expecting 1 to 3 dimenions") 
+        else => @panic("Texture was only expecting 1 to 3 dimenions"),
     };
 }
 
 fn imageViewTypeForDimensions(comptime dimensions: comptime_int) vk.ImageViewType {
-    return switch (dimensions) { 
+    return switch (dimensions) {
         3 => .@"3d",
         2 => .@"2d",
         1 => .@"1d",
-        else => @panic("Texture was only expecting 1 to 3 dimenions") 
+        else => @panic("Texture was only expecting 1 to 3 dimenions"),
     };
 }
 
 fn extentForSize(comptime dimensions: comptime_int, size: [3]u32) vk.Extent3D {
     var extent: vk.Extent3D = .{ .width = size[0], .height = 1, .depth = 1 };
     switch (dimensions) {
-        3 => { extent.height = size[1]; extent.depth = size[2]; },
-        2 => { extent.height = size[1]; },
+        3 => {
+            extent.height = size[1];
+            extent.depth = size[2];
+        },
+        2 => {
+            extent.height = size[1];
+        },
         1 => {},
-        else => @panic("Texture was only expecting 1 to 3 dimenions")
+        else => @panic("Texture was only expecting 1 to 3 dimenions"),
     }
     return extent;
 }
@@ -52,50 +58,61 @@ fn sizeofFormat(format: vk.Format) usize {
     };
 }
 
-
 pub fn Texture(comptime dimensions: comptime_int) type {
     return struct {
-        pub const WriteContext = struct {
+        pub const StagingBuffer = struct {
             texture: *const Texture(dimensions),
-            buffer: GraphicsContext.Buffer(u8), 
+            buffer: GraphicsContext.Buffer(u8),
 
             array: NdarrayView(u8),
-            
-            fn init(texture: *const Self, gc: *const GraphicsContext) !WriteContext {
+            allocator: std.mem.Allocator,
+
+            fn init(texture: *const Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) !StagingBuffer {
                 const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
                 const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
                 var buffer = try gc.allocateBuffer(u8, texture.byteSize(), usage_flags, memory_properties);
-            
-                var current_stride = texture.byteSize();
 
-                var shape: [dimensions]usize = undefined;
-                var strides: [dimensions]usize = undefined;
+                var strides = allocator.alloc(usize, dimensions) catch unreachable;
+                var shape_ = allocator.alloc(usize, dimensions) catch unreachable;
+
+                var current_stride = texture.byteSize();
                 for (0.., texture.size) |i, axis_len| {
                     current_stride /= axis_len;
                     strides[i] = current_stride;
-                    shape[i] = @intCast(axis_len);
+                    shape_[i] = @intCast(axis_len);
                 }
 
-                const array = NdarrayView(u8) {
-                    .shape = &shape,
+                const array = NdarrayView(u8){
                     ._buffer = try buffer.map(gc),
-                    .strides = &strides,
+                    .shape = shape_,
+                    .strides = strides,
                 };
 
-                return WriteContext {
+                return StagingBuffer{
                     .buffer = buffer,
                     .texture = texture,
                     .array = array,
+                    .allocator = allocator,
                 };
             }
 
-            pub fn getMutableArray(self: *const WriteContext) NdarrayView(u8) {
-                return self.array;
+            pub fn deinit(self: *const StagingBuffer, gc: *const GraphicsContext) void {
+                self.allocator.free(self.array.strides);
+                self.allocator.free(self.array.shape);
+                self.buffer.deinit(gc);
             }
 
-            pub fn write(self: *const WriteContext, gc: *const GraphicsContext, command_pool: vk.CommandPool) !void {
-                defer self.buffer.deinit(gc);
-                try self.texture.write(gc, command_pool, self.buffer);
+            pub fn slice(self: *const StagingBuffer, index: []const usize) NdarrayView(u8) {
+                return self.array.slice(index);
+            }
+            pub fn at(self: *const StagingBuffer, index: []const usize) *u8 {
+                return self.array.at(index);
+            }
+            pub fn write(self: *const StagingBuffer, data: []u8) void {
+                self.array.write(data);
+            }
+            pub fn shape(self: *const StagingBuffer) []const usize {
+                return self.array.shape;
             }
         };
 
@@ -114,13 +131,17 @@ pub fn Texture(comptime dimensions: comptime_int) type {
 
         pub fn byteSize(self: *const Self) usize {
             var byte_size = sizeofFormat(self.format);
-            for (self.extent) |dimension| { byte_size *= dimension; }
+            for (self.extent) |dimension| {
+                byte_size *= dimension;
+            }
             return byte_size;
         }
-        
+
         pub fn init(gc: *const GraphicsContext, format: vk.Format, size: [dimensions]u32) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
-            for (0..size.len) |i| { verbose_size[i] = size[i]; }
+            for (0..size.len) |i| {
+                verbose_size[i] = size[i];
+            }
 
             const initial_layout: vk.ImageLayout = .undefined;
 
@@ -175,17 +196,13 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             const sampler = try gc.vkd.createSampler(gc.dev, &sampler_create_info, null);
             errdefer gc.vkd.destroySampler(gc.dev, sampler, null);
 
-            const image_view_create_info: vk.ImageViewCreateInfo = .{ 
-                .image = image, .view_type = imageViewTypeForDimensions(dimensions), 
-                .format = format, 
-                .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
-                    .base_mip_level = 0,
-                    .base_array_layer = 0,
-                    .layer_count = 1,
-                    .level_count = 1,
-                }, 
-                .components = .{ .r = .r, .g = .g, .b = .b, .a = .a } };
+            const image_view_create_info: vk.ImageViewCreateInfo = .{ .image = image, .view_type = imageViewTypeForDimensions(dimensions), .format = format, .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .base_array_layer = 0,
+                .layer_count = 1,
+                .level_count = 1,
+            }, .components = .{ .r = .r, .g = .g, .b = .b, .a = .a } };
             const image_view = try gc.vkd.createImageView(gc.dev, &image_view_create_info, null);
             errdefer gc.vkd.destroyImageView(gc.dev, image_view, null);
 
@@ -195,7 +212,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .image_view = image_view,
             };
 
-            return Self {
+            return Self{
                 .sampler = sampler,
                 .image = image,
                 .image_layout = initial_layout,
@@ -208,11 +225,13 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             };
         }
 
-        pub fn beginWrite(self: *const Self, gc: *const GraphicsContext) !Self.WriteContext {
-            return Self.WriteContext.init(self, gc); 
+        pub fn createStagingBuffer(self: *const Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) !Self.StagingBuffer {
+            return Self.StagingBuffer.init(self, gc, allocator);
         }
 
-        fn write(self: *const Self, gc: *const GraphicsContext, pool: vk.CommandPool, staging_buffer: GraphicsContext.Buffer(u8)) !void {
+        pub fn writeStagingBuffer(self: *const Self, gc: *const GraphicsContext, pool: vk.CommandPool, staging_buffer: Self.StagingBuffer) !void {
+            const buffer = staging_buffer.buffer;
+
             const command_buffer = try gc.beginSingleTimeCommands(pool);
 
             const subresource_range: vk.ImageSubresourceRange = .{
@@ -238,7 +257,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .buffer_image_height = self.extent[1],
                 .image_offset = .{ .x = 0, .y = 0, .z = 0 },
             };
-            gc.vkd.cmdCopyBufferToImage(command_buffer, staging_buffer.vk_handle, self.image, .transfer_dst_optimal, 1, @ptrCast(&buffer_image_copy));
+            gc.vkd.cmdCopyBufferToImage(command_buffer, buffer.vk_handle, self.image, .transfer_dst_optimal, 1, @ptrCast(&buffer_image_copy));
 
             try gc.transitionImageLayout(command_buffer, self.image, subresource_range, .transfer_dst_optimal, .shader_read_only_optimal);
 
