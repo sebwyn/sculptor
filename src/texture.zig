@@ -1,5 +1,6 @@
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const vk = @import("vulkan");
+const NdarrayView = @import("ndarray.zig").NdarrayView;
 
 const Texture3dError = error{ UnsupportedDevice, UnsupportedSize, BadDataFormat };
 
@@ -51,8 +52,53 @@ fn sizeofFormat(format: vk.Format) usize {
     };
 }
 
+
 pub fn Texture(comptime dimensions: comptime_int) type {
     return struct {
+        pub const WriteContext = struct {
+            texture: *const Texture(dimensions),
+            buffer: GraphicsContext.Buffer(u8), 
+
+            array: NdarrayView(u8),
+            
+            fn init(texture: *const Self, gc: *const GraphicsContext) !WriteContext {
+                const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
+                const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
+                var buffer = try gc.allocateBuffer(u8, texture.byteSize(), usage_flags, memory_properties);
+            
+                var current_stride = texture.byteSize();
+
+                var shape: [dimensions]usize = undefined;
+                var strides: [dimensions]usize = undefined;
+                for (0.., texture.size) |i, axis_len| {
+                    current_stride /= axis_len;
+                    strides[i] = current_stride;
+                    shape[i] = @intCast(axis_len);
+                }
+
+                const array = NdarrayView(u8) {
+                    .shape = &shape,
+                    ._buffer = try buffer.map(gc),
+                    .strides = &strides,
+                };
+
+                return WriteContext {
+                    .buffer = buffer,
+                    .texture = texture,
+                    .array = array,
+                };
+            }
+
+            pub fn getMutableArray(self: *const WriteContext) NdarrayView(u8) {
+                return self.array;
+            }
+
+            pub fn write(self: *const WriteContext, gc: *const GraphicsContext, command_pool: vk.CommandPool) !void {
+                defer self.buffer.deinit(gc);
+                try self.texture.write(gc, command_pool, self.buffer);
+            }
+        };
+
         const Self = @This();
 
         sampler: vk.Sampler,
@@ -63,7 +109,14 @@ pub fn Texture(comptime dimensions: comptime_int) type {
         memory: vk.DeviceMemory,
         format: vk.Format,
 
-        size: [3]u32,
+        size: [dimensions]u32,
+        extent: [3]u32,
+
+        pub fn byteSize(self: *const Self) usize {
+            var byte_size = sizeofFormat(self.format);
+            for (self.extent) |dimension| { byte_size *= dimension; }
+            return byte_size;
+        }
         
         pub fn init(gc: *const GraphicsContext, format: vk.Format, size: [dimensions]u32) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
@@ -150,21 +203,16 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .view = image_view,
                 .memory = memory,
                 .format = format,
-                .size = verbose_size,
+                .extent = verbose_size,
+                .size = size,
             };
         }
 
-        pub fn write(self: *Self, gc: *const GraphicsContext, pool: vk.CommandPool, data: []const u8) !void {
-            var expected_size = sizeofFormat(self.format);
-            for (self.size) |dimension| { expected_size *= dimension; }
+        pub fn beginWrite(self: *const Self, gc: *const GraphicsContext) !Self.WriteContext {
+            return Self.WriteContext.init(self, gc); 
+        }
 
-            if (data.len != expected_size) {
-                return error.BadDataFormat;
-            }
-
-            const staging_buffer = try gc.writeStagingBuffer(u8, data);
-            defer staging_buffer.deinit(gc);
-
+        fn write(self: *const Self, gc: *const GraphicsContext, pool: vk.CommandPool, staging_buffer: GraphicsContext.Buffer(u8)) !void {
             const command_buffer = try gc.beginSingleTimeCommands(pool);
 
             const subresource_range: vk.ImageSubresourceRange = .{
@@ -184,10 +232,10 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                     .base_array_layer = 0,
                     .layer_count = 1,
                 },
-                .image_extent = extentForSize(dimensions, self.size),
+                .image_extent = extentForSize(dimensions, self.extent),
                 .buffer_offset = 0,
-                .buffer_row_length = self.size[0],
-                .buffer_image_height = self.size[1],
+                .buffer_row_length = self.extent[0],
+                .buffer_image_height = self.extent[1],
                 .image_offset = .{ .x = 0, .y = 0, .z = 0 },
             };
             gc.vkd.cmdCopyBufferToImage(command_buffer, staging_buffer.vk_handle, self.image, .transfer_dst_optimal, 1, @ptrCast(&buffer_image_copy));

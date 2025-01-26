@@ -4,14 +4,18 @@ const float PI = 3.14159265;
 
 layout(location=0) out vec4 f_color;
 
-layout(binding=0) uniform uniform_buffer {
+layout(set=0, binding=0) uniform uniform_buffer {
   mat4x4 view;
   mat4x4 proj;
   vec2 screen_size;
 } uniforms; 
 
-layout(binding=1) uniform sampler3D voxels;
-layout(binding=2) uniform sampler1D palette; 
+layout(set=1, binding=1) uniform vox_transform {
+  mat4x4 mat;
+} voxel_transform;
+
+layout(set=1, binding=2) uniform sampler3D voxels;
+layout(set=1, binding=3) uniform sampler1D palette; 
 
 bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin, out vec3 outNormal) {
     vec3 t0s = (cubeMin - ro) * rd_inv;

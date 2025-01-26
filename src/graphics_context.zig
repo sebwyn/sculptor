@@ -337,10 +337,11 @@ pub const GraphicsContext = struct {
                 return vk.DescriptorBufferInfo{ .buffer = self.vk_handle, .offset = 0, .range = @sizeOf(Data) * @as(u64, self.length) };
             }
             
-            pub fn map(self: *Self, gc: *const GraphicsContext) !void {
+            pub fn map(self: *Self, gc: *const GraphicsContext) ![]Data {
                  if (self.data_ptr == null) {
                      self.data_ptr = @ptrCast(@alignCast(try gc.vkd.mapMemory(gc.dev, self.memory, 0, vk.WHOLE_SIZE, .{})));
                  }
+                 return self.data_ptr.?[0..self.length];
             }
 
             pub fn unmap(self: *Self, gc: *const GraphicsContext) void {
@@ -350,11 +351,14 @@ pub const GraphicsContext = struct {
                 self.data_ptr = null;
             }
 
+            //TODO: Think about whether this memcpy is necessary (PROFILE FIRST)
+            //alternatively could think about write as just mapping the memory, and writing data directly to buffer
+            //python context would be nice here
             pub fn write(self: *Self, gc: *const GraphicsContext, data: []const Data) !void {
                 if (self.data_ptr) |data_ptr| {
                     @memcpy(data_ptr, data);
                 } else {
-                    try self.map(gc);
+                    _ = try self.map(gc);
                     @memcpy(self.data_ptr.?, data);
                     self.unmap(gc);
                 }
@@ -402,14 +406,14 @@ pub const GraphicsContext = struct {
         try self.endSingleTimeCommands(pool, cmdbuf, self.graphics_queue.handle);
     }
 
-
-    pub fn writeStagingBuffer(self: GraphicsContext, comptime T: type, data: []const T) !Buffer(T) {
+    pub fn writeStagingBuffer(self: *const GraphicsContext, T: type, data: []const T) !Buffer(T) {
         const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
         const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
         var buffer = try self.allocateBuffer(T, data.len, usage_flags, memory_properties);
-        try buffer.write(&self, data);
-
+        const ptr = try buffer.map(self);
+        @memcpy(ptr, data);
         return buffer;
+
     }
 };
 fn debugCallback(_: vk.DebugUtilsMessageSeverityFlagsEXT, _: vk.DebugUtilsMessageTypeFlagsEXT, p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, _: ?*anyopaque) callconv(vk.vulkan_call_conv) vk.Bool32 {

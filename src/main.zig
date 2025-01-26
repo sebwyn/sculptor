@@ -13,6 +13,7 @@ const CameraController = @import("camera_controller.zig").CameraController;
 const Camera = @import("camera_controller.zig").Camera;
 const Texture = @import("texture.zig").Texture;
 const Ndarray = @import("ndarray.zig").Ndarray;
+const NdarrayView = @import("ndarray.zig").NdarrayView;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
 
@@ -59,6 +60,104 @@ fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
 
 const PI = 3.14159265;
 
+const VoxelMesh = struct {
+    transform: zlm.Mat4,
+    palette: Texture(1),
+    voxels: Texture(3),
+
+    fn empty(gc: *const GraphicsContext, size: [3]u32) !VoxelMesh {
+        const palette = try Texture(1).init(gc, .r8g8b8a8_srgb, .{ 255 });
+        errdefer palette.deinit(gc);
+        const voxels = try Texture(3).init(gc, .r8_unorm, size);
+        errdefer voxels.deinit(gc);
+        
+        return VoxelMesh {
+            .transform = zlm.Mat4.identity,
+            .palette = palette,
+            .voxels = voxels,
+        };
+    }
+
+    fn sphere(gc: *const GraphicsContext, size: [3]u32, command_pool: vk.CommandPool) !VoxelMesh {
+        var mesh = try VoxelMesh.empty(gc, size);
+        
+        var write_context: Texture(3).WriteContext = try mesh.voxels.beginWrite(gc);
+
+        var rand = std.rand.DefaultPrng.init(0);
+        var voxel_data: NdarrayView(u8) = write_context.getMutableArray();
+        for (0..voxel_data.shape[0]) |x| {
+            for (0..voxel_data.shape[1]) |y| {
+                for (0..voxel_data.shape[2]) |z| {
+                    const xf = @as(f32, @floatFromInt(x)) + 0.5 - 16;
+                    const yf = @as(f32, @floatFromInt(y)) + 0.5 - 16;
+                    const zf = @as(f32, @floatFromInt(z)) + 0.5 - 16;
+                    const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
+                    voxel_data.at(&.{ x, y, z}).* = rand.random().int(u8) * @as(u8, @intFromBool(dist_from_origin < 8));
+                }
+            }
+        }
+        try write_context.write(gc, command_pool);
+
+        return mesh;
+    }
+
+    fn deinit(self: *const VoxelMesh, gc: *const GraphicsContext) void {
+        self.palette.deinit(gc);
+        self.voxels.deinit(gc);
+    }
+
+    fn create_descriptor_layout(gc: *const GraphicsContext) !vk.DescriptorSetLayout {
+        return try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
+            .binding_count = 3,
+            .flags = .{},
+            .p_bindings = &.{
+                .{
+                    .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                    .binding = 1,
+                    .descriptor_type = .uniform_buffer,
+                    .descriptor_count = 1,
+                },
+                .{
+                    .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
+                    .binding = 2,
+                    .descriptor_type = .combined_image_sampler,
+                    .descriptor_count = 1,
+                },
+                .{
+                    .stage_flags = vk.ShaderStageFlags { .fragment_bit = true },
+                    .binding = 3,
+                    .descriptor_type = .combined_image_sampler,
+                    .descriptor_count = 1,
+                }
+            },
+        }, null);
+    }
+
+    fn update_descriptor_set(self: *const VoxelMesh, gc: *const GraphicsContext, descriptor_set: vk.DescriptorSet) void {
+        const voxels_write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .combined_image_sampler,
+            .dst_set = descriptor_set,
+            .dst_binding = 2,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .p_buffer_info = undefined,
+            .p_image_info = @ptrCast(&self.voxels.descriptor),
+            .p_texel_buffer_view = @ptrCast(&self.voxels.view),
+        };
+        const voxel_palette_write_descriptor = vk.WriteDescriptorSet{ 
+            .descriptor_type = .combined_image_sampler,
+            .dst_set = descriptor_set,
+            .dst_binding = 3,
+            .dst_array_element = 0,
+            .descriptor_count = 1,
+            .p_buffer_info = undefined,
+            .p_image_info = @ptrCast(&self.palette.descriptor),
+            .p_texel_buffer_view = @ptrCast(&self.palette.view),
+        };
+        gc.vkd.updateDescriptorSets(gc.dev, 2, &.{ voxels_write_descriptor, voxel_palette_write_descriptor }, 0, null);
+    }
+};
+
 pub fn main() !void {
     glfw.setErrorCallback(errorCallback);
     if (!glfw.init(.{})) {
@@ -86,9 +185,9 @@ pub fn main() !void {
 
     var swapchain = try Swapchain.init(&gc, allocator, extent);
     defer swapchain.deinit();
-    
-    const descriptor_set_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
-        .binding_count = 3,
+
+    const camera_descriptor_layout = try gc.vkd.createDescriptorSetLayout(gc.dev, &.{
+        .binding_count = 1,
         .flags = .{},
         .p_bindings = &.{
             .{
@@ -97,26 +196,17 @@ pub fn main() !void {
                 .descriptor_type = .uniform_buffer,
                 .descriptor_count = 1,
             },
-            .{
-                .stage_flags = vk.ShaderStageFlags{ .fragment_bit = true },
-                .binding = 1,
-                .descriptor_type = .combined_image_sampler,
-                .descriptor_count = 1,
-            },
-            .{
-                .stage_flags = vk.ShaderStageFlags { .fragment_bit = true },
-                .binding = 2,
-                .descriptor_type = .combined_image_sampler,
-                .descriptor_count = 1,
-            }
         },
     }, null);
-    defer gc.vkd.destroyDescriptorSetLayout(gc.dev, descriptor_set_layout, null);
+    defer gc.vkd.destroyDescriptorSetLayout(gc.dev, camera_descriptor_layout, null);
+    
+    const voxel_mesh_descriptor_layout = try VoxelMesh.create_descriptor_layout(&gc);
+    defer gc.vkd.destroyDescriptorSetLayout(gc.dev, voxel_mesh_descriptor_layout, null);
 
     const pipeline_layout = try gc.vkd.createPipelineLayout(gc.dev, &.{
         .flags = .{},
-        .set_layout_count = 1,
-        .p_set_layouts = &.{descriptor_set_layout},
+        .set_layout_count = 2,
+        .p_set_layouts = &.{camera_descriptor_layout, voxel_mesh_descriptor_layout},
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);
@@ -137,11 +227,6 @@ pub fn main() !void {
     }, null);
     defer gc.vkd.destroyCommandPool(gc.dev, pool, null);
 
-    var voxel_palette = try Texture(1).init(&gc, .r8g8b8a8_srgb, .{ 255 });
-    defer voxel_palette.deinit(&gc);
-
-    var voxels = try Texture(3).init(&gc, .r8_unorm, .{ 32, 32, 32 });
-    defer voxels.deinit(&gc);
 
     var initialized_uniform_buffers: usize = 0;
     var uniform_buffers = try allocator.alloc(GraphicsContext.Buffer(Camera), framebuffers.len);
@@ -153,38 +238,39 @@ pub fn main() !void {
     while (initialized_uniform_buffers < framebuffers.len) {
         var buffer = try gc.allocateBuffer(Camera, 1, .{ .uniform_buffer_bit = true }, .{ .host_visible_bit = true, .host_coherent_bit = true });
         errdefer buffer.deinit(&gc);
-        try buffer.map(&gc);
+        _ = try buffer.map(&gc);
         uniform_buffers[initialized_uniform_buffers] = buffer;
         initialized_uniform_buffers += 1;
     }
 
-    const camera_descriptor_size: vk.DescriptorPoolSize =  .{ .type = .uniform_buffer, .descriptor_count = @intCast(framebuffers.len) };
-    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = 2 * @as(u32, @intCast(framebuffers.len)) };
+    const camera_descriptor_size: vk.DescriptorPoolSize =  .{ .type = .uniform_buffer, .descriptor_count = @intCast(2*framebuffers.len) };
+    const texture_descriptor_size: vk.DescriptorPoolSize = .{ .type = .combined_image_sampler, .descriptor_count = @intCast(2*framebuffers.len) };
+
     const descriptor_pool_info: vk.DescriptorPoolCreateInfo = .{  
-        .max_sets = @intCast(framebuffers.len),
+        .max_sets = @intCast(2*framebuffers.len),
         .pool_size_count = 2,
         .p_pool_sizes = &.{ camera_descriptor_size, texture_descriptor_size } 
     };
     const descriptor_pool = try gc.vkd.createDescriptorPool( gc.dev, &descriptor_pool_info, null);
     defer gc.vkd.destroyDescriptorPool(gc.dev, descriptor_pool, null);
+    
+    const camera_descriptor_layouts = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
+    defer allocator.free(camera_descriptor_layouts);
+    @memset(camera_descriptor_layouts, camera_descriptor_layout);
 
-    var descriptor_set_layouts: []vk.DescriptorSetLayout = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
-    defer allocator.free(descriptor_set_layouts);
-    for (0..framebuffers.len) |i| { descriptor_set_layouts[i] = descriptor_set_layout; }
-
-    const descriptor_sets: []vk.DescriptorSet = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
-    defer allocator.free(descriptor_sets);
+    const camera_descriptor_sets = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
+    defer allocator.free(camera_descriptor_sets);
 
     try gc.vkd.allocateDescriptorSets(gc.dev, &vk.DescriptorSetAllocateInfo{
         .descriptor_pool = descriptor_pool,
-        .p_set_layouts = descriptor_set_layouts.ptr,
+        .p_set_layouts = camera_descriptor_layouts.ptr,
         .descriptor_set_count = @intCast(framebuffers.len),
-    }, descriptor_sets.ptr);
+    }, camera_descriptor_sets.ptr);
 
     for (0..framebuffers.len) |i| {
         const camera_write_descriptor = vk.WriteDescriptorSet{ 
             .descriptor_type = .uniform_buffer,
-            .dst_set = descriptor_sets[i],
+            .dst_set = camera_descriptor_sets[i],
             .dst_binding = 0,
             .dst_array_element = 0,
             .descriptor_count = 1,
@@ -192,54 +278,35 @@ pub fn main() !void {
             .p_image_info = &[_]vk.DescriptorImageInfo{},
             .p_texel_buffer_view = &[_]vk.BufferView{} 
         };
-        const voxels_write_descriptor = vk.WriteDescriptorSet{ 
-            .descriptor_type = .combined_image_sampler,
-            .dst_set = descriptor_sets[i],
-            .dst_binding = 1,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .p_buffer_info = undefined,
-            .p_image_info = @ptrCast(&voxels.descriptor),
-            .p_texel_buffer_view = @ptrCast(&voxels.view),
-        };
-        const voxel_palette_write_descriptor = vk.WriteDescriptorSet{ 
-            .descriptor_type = .combined_image_sampler,
-            .dst_set = descriptor_sets[i],
-            .dst_binding = 2,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .p_buffer_info = undefined,
-            .p_image_info = @ptrCast(&voxel_palette.descriptor),
-            .p_texel_buffer_view = @ptrCast(&voxel_palette.view),
-        };
-        gc.vkd.updateDescriptorSets(gc.dev, 3, &.{ camera_write_descriptor, voxels_write_descriptor, voxel_palette_write_descriptor }, 0, null);
+        gc.vkd.updateDescriptorSets(gc.dev, 1, &.{ camera_write_descriptor }, 0, null);
     }
+
+    const voxel_mesh_descriptor_layouts = try allocator.alloc(vk.DescriptorSetLayout, framebuffers.len);
+    defer allocator.free(voxel_mesh_descriptor_layouts);
+    @memset(voxel_mesh_descriptor_layouts, voxel_mesh_descriptor_layout);
+
+    const voxel_mesh_descriptor_sets = try allocator.alloc(vk.DescriptorSet, framebuffers.len);
+    defer allocator.free(voxel_mesh_descriptor_sets);
+    try gc.vkd.allocateDescriptorSets(gc.dev, &vk.DescriptorSetAllocateInfo{
+        .descriptor_pool = descriptor_pool,
+        .p_set_layouts = voxel_mesh_descriptor_layouts.ptr,
+        .descriptor_set_count = @intCast(framebuffers.len),
+    }, voxel_mesh_descriptor_sets.ptr);
+    
+    var voxel_mesh = try VoxelMesh.sphere(&gc, .{32, 32, 32}, pool);
+    defer voxel_mesh.deinit(&gc);
+
+    for (voxel_mesh_descriptor_sets) |descriptor_set| { voxel_mesh.update_descriptor_set(&gc, descriptor_set); }
 
     var rand = std.rand.DefaultPrng.init(0);
 
-    var voxel_data: [32 * 32 * 32]u8 = undefined;
-    for (0..32) |z| {
-        for (0..32) |y| {
-            for (0..32) |x| {
-                const texture_index = 32 * 32 * z + 32 * y + x;
-                const xf = @as(f32, @floatFromInt(x)) + 0.5 - 16;
-                const yf = @as(f32, @floatFromInt(y)) + 0.5 - 16;
-                const zf = @as(f32, @floatFromInt(z)) + 0.5 - 16;
-                const dist_from_origin: f32 = std.math.sqrt(xf * xf + yf * yf + zf * zf);
-                voxel_data[texture_index] = rand.random().int(u8) * @as(u8, @intFromBool(dist_from_origin < 8));
-            }
-        }
-    }
-
-    var palette_data = Ndarray(u8).init(&.{ 255, 4 }, allocator);
-    defer palette_data.deinit();
-    for (0..255) |i| { 
+    const write_context = try voxel_mesh.palette.beginWrite(&gc);
+    var palette_data = write_context.getMutableArray();
+    for (0..palette_data.shape[0]) |i| { 
         const color = &.{ rand.random().int(u8), rand.random().int(u8), rand.random().int(u8), 255 };
         palette_data.slice(&.{i}).write(color); 
     }
-
-    try voxels.write(&gc, pool, &voxel_data);
-    try voxel_palette.write(&gc, pool, palette_data.buffer());
+    try write_context.write(&gc, pool);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
@@ -255,7 +322,8 @@ pub fn main() !void {
         swapchain.extent,
         render_pass,
         pipeline,
-        descriptor_sets,
+        camera_descriptor_sets,
+        voxel_mesh_descriptor_sets,
         pipeline_layout,
         framebuffers,
     );
@@ -291,7 +359,8 @@ pub fn main() !void {
                 swapchain.extent,
                 render_pass,
                 pipeline,
-                descriptor_sets,
+                camera_descriptor_sets,
+                voxel_mesh_descriptor_sets,
                 pipeline_layout,
                 framebuffers,
             );
@@ -319,7 +388,8 @@ fn createCommandBuffers(
     extent: vk.Extent2D,
     render_pass: vk.RenderPass,
     pipeline: vk.Pipeline,
-    descriptor_sets: []vk.DescriptorSet,
+    camera_descriptor_sets: []vk.DescriptorSet,
+    voxel_mesh_descriptor_sets: []vk.DescriptorSet,
     pipeline_layout: vk.PipelineLayout,
     framebuffers: []vk.Framebuffer,
 ) ![]vk.CommandBuffer {
@@ -376,7 +446,8 @@ fn createCommandBuffers(
         gc.vkd.cmdBindPipeline(cmdbuf, .graphics, pipeline);
         const offset = [_]vk.DeviceSize{0};
         gc.vkd.cmdBindVertexBuffers(cmdbuf, 0, 1, @as([*]const vk.Buffer, @ptrCast(&buffer)), &offset);
-        gc.vkd.cmdBindDescriptorSets(cmdbuf, .graphics, pipeline_layout, 0, 1, descriptor_sets[i..].ptr, 0, null);
+        gc.vkd.cmdBindDescriptorSets(cmdbuf, .graphics, pipeline_layout, 0, 1, camera_descriptor_sets[i..].ptr, 0, null);
+        gc.vkd.cmdBindDescriptorSets(cmdbuf, .graphics, pipeline_layout, 1, 1, voxel_mesh_descriptor_sets[i..].ptr, 0, null);
         gc.vkd.cmdDraw(cmdbuf, vertices.len, 1, 0, 0);
 
         gc.vkd.cmdEndRenderPass(cmdbuf);
