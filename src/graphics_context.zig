@@ -351,9 +351,7 @@ pub const GraphicsContext = struct {
                 self.data_ptr = null;
             }
 
-            //TODO: Think about whether this memcpy is necessary (PROFILE FIRST)
-            //alternatively could think about write as just mapping the memory, and writing data directly to buffer
-            //python context would be nice here
+            //This function might not always make the most sense to use as it doubles memory usage temporarily
             pub fn write(self: *Self, gc: *const GraphicsContext, data: []const Data) !void {
                 if (self.data_ptr) |data_ptr| {
                     @memcpy(data_ptr, data);
@@ -413,9 +411,9 @@ pub const GraphicsContext = struct {
         const ptr = try buffer.map(self);
         @memcpy(ptr, data);
         return buffer;
-
     }
 };
+
 fn debugCallback(_: vk.DebugUtilsMessageSeverityFlagsEXT, _: vk.DebugUtilsMessageTypeFlagsEXT, p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, _: ?*anyopaque) callconv(vk.vulkan_call_conv) vk.Bool32 {
     if (p_callback_data != null) {
         std.log.debug("validation layer: {?s}", .{p_callback_data.?.p_message});

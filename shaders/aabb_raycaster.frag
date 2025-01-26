@@ -53,7 +53,7 @@ void main() {
 
   float tMin;
   vec3 bboxNormal;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); return; }
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); discard; }
   
   vec3 startPos = cameraPos + ray * tMin;
   vec3 voxelPos = floor(startPos);
@@ -81,9 +81,12 @@ void main() {
 
   vec3 lightPos = vec3(20, 20, 20);
   vec3 pos = startPos + ray * tIntersection;
-  f_color = (tIntersection > 0) ? 
-    texture(palette, voxel)
-    //vec4(vec3(0.2) + max(vec3(0.7, 0.3, 0.4) * dot(normalize(lightPos - pos), normal), vec3(0)), 1.0)
-    : vec4(0.0);
+  
+  if (tIntersection > 0) {
+    f_color = texture(palette, voxel);
+    gl_FragDepth = distance(cameraPos, pos) / distance(cameraPos, far);
+  } else {
+    discard;
+  }
 }
 

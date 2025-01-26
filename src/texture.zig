@@ -137,7 +137,15 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             return byte_size;
         }
 
-        pub fn init(gc: *const GraphicsContext, format: vk.Format, size: [dimensions]u32) !Self {
+        pub fn init(
+            gc: *const GraphicsContext, 
+            size: [dimensions]u32, 
+            options: struct {
+                format: vk.Format = .r8g8b8a8_srgb,
+                usage: vk.ImageUsageFlags = .{ .transfer_dst_bit =  true, .sampled_bit = true },
+                aspect_mask: vk.ImageAspectFlags = .{ .color_bit =  true }
+            }
+        ) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
             for (0..size.len) |i| {
                 verbose_size[i] = size[i];
@@ -145,7 +153,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
 
             const initial_layout: vk.ImageLayout = .undefined;
 
-            const physical_properties = gc.vki.getPhysicalDeviceFormatProperties(gc.pdev, format);
+            const physical_properties = gc.vki.getPhysicalDeviceFormatProperties(gc.pdev, options.format);
             if (!physical_properties.optimal_tiling_features.contains(.{ .transfer_dst_bit = true })) {
                 return error.UnsupportedDevice;
             }
@@ -156,7 +164,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
 
             const image_create_info: vk.ImageCreateInfo = .{
                 .image_type = imageTypeForDimensions(dimensions),
-                .format = format,
+                .format = options.format,
                 .mip_levels = 1,
                 .array_layers = 1,
                 .samples = .{ .@"1_bit" = true },
@@ -164,7 +172,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .sharing_mode = .exclusive,
                 .extent = extentForSize(dimensions, verbose_size),
                 .initial_layout = initial_layout,
-                .usage = .{ .transfer_dst_bit = true, .sampled_bit = true },
+                .usage = options.usage,
             };
 
             const image = try gc.vkd.createImage(gc.dev, &image_create_info, null);
@@ -196,8 +204,8 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             const sampler = try gc.vkd.createSampler(gc.dev, &sampler_create_info, null);
             errdefer gc.vkd.destroySampler(gc.dev, sampler, null);
 
-            const image_view_create_info: vk.ImageViewCreateInfo = .{ .image = image, .view_type = imageViewTypeForDimensions(dimensions), .format = format, .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
+            const image_view_create_info: vk.ImageViewCreateInfo = .{ .image = image, .view_type = imageViewTypeForDimensions(dimensions), .format = options.format, .subresource_range = .{
+                .aspect_mask = options.aspect_mask,
                 .base_mip_level = 0,
                 .base_array_layer = 0,
                 .layer_count = 1,
@@ -212,14 +220,14 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .image_view = image_view,
             };
 
-            return Self{
+            return Self {
                 .sampler = sampler,
                 .image = image,
                 .image_layout = initial_layout,
                 .descriptor = descriptor,
                 .view = image_view,
                 .memory = memory,
-                .format = format,
+                .format = options.format,
                 .extent = verbose_size,
                 .size = size,
             };
