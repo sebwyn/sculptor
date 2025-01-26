@@ -43,7 +43,7 @@ void main() {
   vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
   projected_near.y *= -1.0;
   
-  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view);
+  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view * voxel_transform.mat);
   vec4 near4 = (inverseCameraMatrix * projected_near); 
   vec4 far4 = near4 + inverseCameraMatrix[2];
   vec3 near = near4.xyz / near4.w;

@@ -108,7 +108,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             pub fn at(self: *const StagingBuffer, index: []const usize) *u8 {
                 return self.array.at(index);
             }
-            pub fn write(self: *const StagingBuffer, data: []u8) void {
+            pub fn write(self: *const StagingBuffer, data: []const u8) void {
                 self.array.write(data);
             }
             pub fn shape(self: *const StagingBuffer) []const usize {
