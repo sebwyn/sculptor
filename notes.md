@@ -29,8 +29,6 @@
     this datastructure
     - Teardown is also a really interesting source for how physics can be implemented
 
-
-
 ## Youtube channels with voxel engines
 
  - [Xima](https://www.youtube.com/@xima1): Minecraft clone, but with raytraced looking graphics
