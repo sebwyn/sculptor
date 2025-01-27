@@ -301,6 +301,7 @@ fn findPresentMode(gc: *const GraphicsContext, allocator: Allocator) !vk.Present
     _ = try gc.vki.getPhysicalDeviceSurfacePresentModesKHR(gc.pdev, gc.surface, &count, present_modes.ptr);
 
     const preferred = [_]vk.PresentModeKHR{
+        .fifo_khr,
         .mailbox_khr,
         .immediate_khr,
     };

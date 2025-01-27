@@ -17,24 +17,24 @@ layout(set=1, binding=1) uniform vox_transform {
 layout(set=1, binding=2) uniform sampler3D voxels;
 layout(set=1, binding=3) uniform sampler1D palette; 
 
-bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin, out vec3 outNormal) {
+bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out float outTmin, out float outTmax, out vec3 outNormal) {
     vec3 t0s = (cubeMin - ro) * rd_inv;
     vec3 t1s = (cubeMax - ro) * rd_inv;
     vec3 tsmaller = min(t0s, t1s);
     vec3 tbigger = max(t0s, t1s);
 
     float tmin = max(tsmaller.x, max(tsmaller.y, tsmaller.z));
-    float tmax = min(tbigger.x, min(tbigger.y, tbigger.z));
+    outTmax = min(tbigger.x, min(tbigger.y, tbigger.z));
     outTmin = max(tmin,0.0);
     outNormal = max(-2*step(t0s, t1s)+1, 0.2) * (step(tsmaller.zxy, tsmaller.xyz) * step(tsmaller.yzx, tsmaller.xyz));
-    return tmax >= max(tmin, 0.0);
+    return outTmax >= outTmin;
 }
 
-bool isVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
-  vec3 v = (pos + halfGridSize) / gridSize;
-  return -0.0 <= v.x && v.x <= 1.0 &&
-  -0.0 <= v.y && v.y <= 1.0 &&
-  -0.0 <= v.z && v.z <= 1.0; 
+bool isVoxel(vec3 pos, vec3 halfGridSize, vec3 gridSize) {
+  vec3 p = pos + halfGridSize;
+  return  -0.1 <= p.x && p.x <= gridSize.x + 0.1 &&
+   - 0.1 <= p.y && p.y <= gridSize.y + 0.1 &&
+   -0.1 <= p.z && p.z <= gridSize.z + 0.1; 
 }
 
 float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
@@ -42,26 +42,30 @@ float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   return texture(voxels, texCoord).r;
 }
 
-void main() {
+struct Intersection {
+  vec3 pos;
+  vec3 normal;
+  float voxel;
+}; 
+
+struct MaybeIntersection {
+  Intersection i;
+  bool intersects;
+};
+
+MaybeIntersection castRay(vec3 origin, vec3 ray) {
   vec3 gridSize = textureSize(voxels, 0);
   vec3 halfGridSize = gridSize/2;
-  
-  vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
-  projected_near.y *= -1.0;
-  
-  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view);
-  vec4 near4 = (inverseCameraMatrix * projected_near); 
-  vec4 far4 = near4 + inverseCameraMatrix[2];
-  vec3 near = near4.xyz / near4.w;
-  vec3 far = far4.xyz / far4.w;
-  vec3 cameraPos = near;
-  vec3 ray = normalize(far-near);
+  Intersection intersection;
+  MaybeIntersection maybe_intersection;
+  maybe_intersection.intersects = false;
 
   float tMin;
+  float tMaxOfBoundingBox;
   vec3 bboxNormal;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); return; }
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, tMin, tMaxOfBoundingBox, bboxNormal)) { return maybe_intersection; }
   
-  vec3 startPos = cameraPos + ray * tMin;
+  vec3 startPos = origin + ray * tMin;
   vec3 voxelPos = floor(startPos);
   vec3 grid_delta = sign(ray);
 
@@ -69,30 +73,61 @@ void main() {
   vec3 tMax = abs(((voxelPos + max(grid_delta, 0)) - startPos) / ray);
 
   int iterations = 0;
-  float voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+  
   vec3 normal = bboxNormal;
   float tIntersection = -1;
-  for (int i = 0; i < 300; ++i) {
-    vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
-    voxelPos += grid_delta * cmp;
-    voxel = getVoxel(voxelPos, gridSize, halfGridSize);
-    if (!isVoxel(voxelPos, gridSize, halfGridSize)) {
-      break;
-    }
-    if(voxel > 0) {
+
+  intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+  if (intersection.voxel > 0) {
+    maybe_intersection.intersects = true;
+    intersection.pos = startPos + ray * tMin;
+    intersection.normal = bboxNormal;
+    maybe_intersection.i = intersection;
+  } else {
+    for (int i = 0; i < 500; ++i) {
+      vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
+      voxelPos += grid_delta * cmp;
+
       vec3 tVec = tMax * cmp;
       tIntersection = max(max(tVec.x, tVec.y), tVec.z);
-      normal = -1 * grid_delta * cmp;
-      break;
-    }
-    tMax += tDelta * cmp;
-  }
+      if (tIntersection > (tMaxOfBoundingBox - tMin)) { break; }
 
-  vec3 lightPos = vec3(20, 20, 20);
-  vec3 pos = startPos + ray * tIntersection;
+      intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+      if(intersection.voxel > 0) { 
+        maybe_intersection.intersects = true;
+        intersection.pos = startPos + ray * tIntersection;
+        intersection.normal = -1 * grid_delta * cmp;
+        maybe_intersection.i = intersection;
+        break; 
+      }
+
+      tMax += tDelta * cmp;
+    }
+  } 
+
   
-  if (tIntersection > 0) {
-    f_color = texture(palette, voxel) + 0.1 * vec4(normal, 0.0);
+  return maybe_intersection;
+}
+
+void main() {
+  
+  vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
+  projected_near.y *= -1.0;
+  
+  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view * voxel_transform.mat);
+  vec4 near4 = (inverseCameraMatrix * projected_near); 
+  vec4 far4 = near4 + inverseCameraMatrix[2];
+  vec3 near = near4.xyz / near4.w;
+  vec3 far = far4.xyz / far4.w;
+  vec3 cameraPos = near;
+  vec3 ray = normalize(far-near);
+  
+  MaybeIntersection maybe_intersection = castRay(cameraPos, ray);
+  if (maybe_intersection.intersects) {
+    Intersection intersection = maybe_intersection.i;
+    
+    vec3 lightPos = vec3(20, 20, 20);
+    f_color = texture(palette, intersection.voxel) + 0.1 * vec4(intersection.normal, 0.0);
     // gl_FragDepth = distance(cameraPos, pos) / distance(cameraPos, far);
   } else {
     f_color = vec4(0.0);
