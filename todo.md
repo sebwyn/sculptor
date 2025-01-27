@@ -10,3 +10,4 @@
 - [ ] testing with larger data
 - [ ] load .vox files
 - [ ] create my own voxel file format
+- [ ] unique materials/shaders (clouds, etc...)

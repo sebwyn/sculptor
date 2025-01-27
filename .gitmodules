@@ -1,0 +1,3 @@
+[submodule "assets/voxel-model"]
+	path = assets/voxel-model
+	url = https://github.com/ephtracy/voxel-model

@@ -40,7 +40,7 @@ pub const CameraController = struct {
         const window_width: f32 = @floatFromInt(window_size.width);
         const window_height: f32 = @floatFromInt(window_size.height);
 
-        const proj = zlm.Mat4.createPerspective(zlm_helpers.toRadians(90.0), window_width / window_height, 1, 1000);
+        const proj = zlm.Mat4.createPerspective(zlm_helpers.toRadians(90.0), window_width / window_height, 0.01, 10000);
 
         const camera = Camera {
             .view_matrix = zlm.Mat4.identity,

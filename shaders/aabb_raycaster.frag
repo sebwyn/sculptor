@@ -30,6 +30,12 @@ bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out floa
     return tmax >= max(tmin, 0.0);
 }
 
+bool isVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
+  vec3 v = (pos + halfGridSize) / gridSize;
+  return -0.0 <= v.x && v.x <= 1.0 &&
+  -0.0 <= v.y && v.y <= 1.0 &&
+  -0.0 <= v.z && v.z <= 1.0; 
+}
 
 float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   vec3 texCoord = (pos + halfGridSize) / gridSize;
@@ -43,7 +49,7 @@ void main() {
   vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
   projected_near.y *= -1.0;
   
-  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view * voxel_transform.mat);
+  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view);
   vec4 near4 = (inverseCameraMatrix * projected_near); 
   vec4 far4 = near4 + inverseCameraMatrix[2];
   vec3 near = near4.xyz / near4.w;
@@ -53,7 +59,7 @@ void main() {
 
   float tMin;
   vec3 bboxNormal;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); discard; }
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, cameraPos, 1/ray, tMin, bboxNormal)) { f_color = vec4(0.0); return; }
   
   vec3 startPos = cameraPos + ray * tMin;
   vec3 voxelPos = floor(startPos);
@@ -66,10 +72,13 @@ void main() {
   float voxel = getVoxel(voxelPos, gridSize, halfGridSize);
   vec3 normal = bboxNormal;
   float tIntersection = -1;
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 300; ++i) {
     vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
     voxelPos += grid_delta * cmp;
     voxel = getVoxel(voxelPos, gridSize, halfGridSize);
+    if (!isVoxel(voxelPos, gridSize, halfGridSize)) {
+      break;
+    }
     if(voxel > 0) {
       vec3 tVec = tMax * cmp;
       tIntersection = max(max(tVec.x, tVec.y), tVec.z);
@@ -83,10 +92,10 @@ void main() {
   vec3 pos = startPos + ray * tIntersection;
   
   if (tIntersection > 0) {
-    f_color = texture(palette, voxel);
-    gl_FragDepth = distance(cameraPos, pos) / distance(cameraPos, far);
+    f_color = texture(palette, voxel) + 0.1 * vec4(normal, 0.0);
+    // gl_FragDepth = distance(cameraPos, pos) / distance(cameraPos, far);
   } else {
-    discard;
+    f_color = vec4(0.0);
   }
 }
 
