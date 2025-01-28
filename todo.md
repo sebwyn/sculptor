@@ -4,7 +4,6 @@
 - [X] simple materials
 - [X] render multiple objects
 - [X] load .vox files
-    - [ ] some files just don't load the geometry correctly
     - [ ] transparency/materials
     - [ ] animations
 - [ ] render octrees 
