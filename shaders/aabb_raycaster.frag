@@ -73,7 +73,7 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
   if (intersection.voxel > 0) {
     maybe_intersection.intersects = true;
-    intersection.pos = startPos + ray * tMin;
+    intersection.pos = startPos;
     intersection.normal = bboxNormal;
     maybe_intersection.i = intersection;
   } else {
@@ -83,12 +83,12 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
 
       vec3 tVec = tMax * cmp;
       tIntersection = max(max(tVec.x, tVec.y), tVec.z);
-      if (tIntersection > (tMaxOfBoundingBox - tMin)) { break; }
+      if (tIntersection > tMaxOfBoundingBox - tMin) { break; }
 
       intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
       if(intersection.voxel > 0) { 
         maybe_intersection.intersects = true;
-        intersection.pos = startPos + ray * tIntersection;
+        intersection.pos = startPos + ray * (tIntersection);
         intersection.normal = -1 * grid_delta * cmp;
         maybe_intersection.i = intersection;
         break; 
@@ -121,9 +121,9 @@ void main() {
     
     vec3 lightPos = vec3(20, 20, 20);
     f_color = texture(palette, intersection.voxel) + 0.1 * vec4(intersection.normal, 0.0);
-    // gl_FragDepth = distance(cameraPos, pos) / distance(cameraPos, far);
+    gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
   } else {
-    f_color = vec4(0.0);
+    discard;
   }
 }
 

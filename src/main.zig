@@ -177,7 +177,8 @@ pub fn main() !void {
         gc.vkd.updateDescriptorSets(gc.dev, 1, &.{camera_write_descriptor}, 0, null);
     }
 
-    _ = try read_vox_file("assets/voxel-model/vox/monument/monu1.vox", general_allocator, &voxel_object_store);
+    _ = try read_vox_file("assets/voxel-model/vox/scan/dragon.vox", general_allocator, &voxel_object_store);
+    _ = try read_vox_file("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
