@@ -68,7 +68,7 @@ fn read_all_chunks(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator
             for (0..254) |i| {
                 var rgba: [4]u8 = undefined;
                 _ = try file_reader.read(&rgba);
-                palette_staging_buffer.at(&.{i + 1}).* = rgba;
+                palette_staging_buffer.slice(&.{i}).write(&rgba);
             }
 
             for (object_refs.items) |obj| {

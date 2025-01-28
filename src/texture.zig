@@ -58,37 +58,37 @@ fn sizeofFormat(format: vk.Format) usize {
     };
 }
 
-pub fn Texture(comptime TexelType: type, comptime dimensions: comptime_int) type {
+pub fn Texture(comptime dimensions: comptime_int) type {
     return struct {
         pub const StagingBuffer = struct {
-            texture: *const Texture(TexelType, dimensions),
-            buffer: GraphicsContext.Buffer(TexelType),
+            texture: *const Texture(dimensions),
+            buffer: GraphicsContext.Buffer(u8),
 
-            array: NdarrayView(TexelType),
+            array: NdarrayView(u8),
             allocator: std.mem.Allocator,
 
             fn init(texture: *const Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) !StagingBuffer {
                 const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
                 const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
-                var buffer = try gc.allocateBuffer(TexelType, texture.extent[0] * texture.extent[1] * texture.extent[2], usage_flags, memory_properties);
+                var buffer = try gc.allocateBuffer(u8, texture.byteSize(), usage_flags, memory_properties);
 
                 var strides = allocator.alloc(usize, dimensions) catch unreachable;
                 var shape_ = allocator.alloc(usize, dimensions) catch unreachable;
 
-                var current_stride: usize = 1;
+                var current_stride: usize = sizeofFormat(texture.format);
                 for (0.., texture.size) |i, axis_len| {
                     strides[i] = current_stride;
                     current_stride *= axis_len;
                     shape_[i] = @intCast(axis_len);
                 }
 
-                const array = NdarrayView(TexelType) {
+                const array = NdarrayView(u8){
                     ._buffer = try buffer.map(gc),
                     .shape = shape_,
                     .strides = strides,
                 };
 
-                return StagingBuffer {
+                return StagingBuffer{
                     .buffer = buffer,
                     .texture = texture,
                     .array = array,
@@ -102,10 +102,10 @@ pub fn Texture(comptime TexelType: type, comptime dimensions: comptime_int) type
                 self.buffer.deinit(gc);
             }
 
-            pub fn slice(self: *const StagingBuffer, index: []const usize) NdarrayView(TexelType) {
+            pub fn slice(self: *const StagingBuffer, index: []const usize) NdarrayView(u8) {
                 return self.array.slice(index);
             }
-            pub fn at(self: *const StagingBuffer, index: []const usize) *TexelType {
+            pub fn at(self: *const StagingBuffer, index: []const usize) *u8 {
                 return self.array.at(index);
             }
             pub fn write(self: *const StagingBuffer, data: []const u8) void {
@@ -137,15 +137,7 @@ pub fn Texture(comptime TexelType: type, comptime dimensions: comptime_int) type
             return byte_size;
         }
 
-        pub fn init(
-            gc: *const GraphicsContext, 
-            size: [dimensions]u32, 
-            options: struct {
-                format: vk.Format = .r8g8b8a8_srgb,
-                usage: vk.ImageUsageFlags = .{ .transfer_dst_bit =  true, .sampled_bit = true },
-                aspect_mask: vk.ImageAspectFlags = .{ .color_bit =  true }
-            }
-        ) !Self {
+        pub fn init(gc: *const GraphicsContext, size: [dimensions]u32, options: struct { format: vk.Format = .r8g8b8a8_srgb, usage: vk.ImageUsageFlags = .{ .transfer_dst_bit = true, .sampled_bit = true }, aspect_mask: vk.ImageAspectFlags = .{ .color_bit = true } }) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
             for (0..size.len) |i| {
                 verbose_size[i] = size[i];
@@ -220,7 +212,7 @@ pub fn Texture(comptime TexelType: type, comptime dimensions: comptime_int) type
                 .image_view = image_view,
             };
 
-            return Self {
+            return Self{
                 .sampler = sampler,
                 .image = image,
                 .image_layout = initial_layout,

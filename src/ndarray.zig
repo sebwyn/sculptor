@@ -19,7 +19,9 @@ pub fn NdarrayView(T: type) type {
 
         fn toOffset(self: *const Self, index: []const usize) usize {
             var offset: usize = 0;
-            for (self.strides[0..index.len], index) |stride, i| { offset += stride * i; }
+            for (self.strides[0..index.len], index) |stride, i| {
+                offset += stride * i;
+            }
             return offset;
         }
 
@@ -28,7 +30,9 @@ pub fn NdarrayView(T: type) type {
         }
 
         pub fn at(self: *const Self, index: []const usize) *T {
-            if (index.len != self.shape.len) { @panic("Must specify an index along all axes when getting a value from an ndarray!"); }
+            if (index.len != self.shape.len) {
+                @panic("Must specify an index along all axes when getting a value from an ndarray!");
+            }
             return &self._buffer[self.toOffset(index)];
         }
 
@@ -36,7 +40,7 @@ pub fn NdarrayView(T: type) type {
             const slice_start = self.toOffset(index);
             const slice_end = slice_start + self.strides[index.len - 1];
 
-            return Self {
+            return Self{
                 .shape = self.shape[index.len..],
                 .strides = self.strides[index.len..],
                 ._buffer = self._buffer[slice_start..slice_end],
@@ -57,8 +61,10 @@ pub fn Ndarray(T: type) type {
         allocator: std.mem.Allocator,
 
         pub fn init(shape_: []const usize, allocator: std.mem.Allocator) Self {
-            var size: usize = 1; 
-            for (shape_) |axis_len| { size *= axis_len; }
+            var size: usize = 1;
+            for (shape_) |axis_len| {
+                size *= axis_len;
+            }
 
             var current_stride = size;
             var strides = allocator.alloc(usize, shape_.len) catch unreachable;
@@ -66,12 +72,12 @@ pub fn Ndarray(T: type) type {
                 current_stride /= axis_len;
                 strides[i] = current_stride;
             }
-            
+
             const owned_shape = allocator.alloc(usize, shape_.len) catch unreachable;
             @memcpy(owned_shape, shape_);
 
-            return Self {
-                .ndarray_view = NdarrayView(T) {
+            return Self{
+                .ndarray_view = NdarrayView(T){
                     ._buffer = allocator.alloc(T, size) catch unreachable,
                     .shape = owned_shape,
                     .strides = strides,
@@ -85,8 +91,8 @@ pub fn Ndarray(T: type) type {
             const shape_ = allocator.allocate(usize, view._buffer.stride);
             const stride = allocator.allocate(usize, view._buffer.stride);
 
-            return Self {
-                .ndarray_view = NdarrayView(T) {
+            return Self{
+                .ndarray_view = NdarrayView(T){
                     ._buffer = buffer_,
                     .shape = shape_,
                     .stride = stride,
@@ -95,8 +101,12 @@ pub fn Ndarray(T: type) type {
             };
         }
 
-        pub inline fn shape(self: *const Self ) []const usize { return self.ndarray_view.shape; }
-        pub inline fn buffer(self: *const Self) []const T { return self.ndarray_view._buffer; }
+        pub inline fn shape(self: *const Self) []const usize {
+            return self.ndarray_view.shape;
+        }
+        pub inline fn buffer(self: *const Self) []const T {
+            return self.ndarray_view._buffer;
+        }
 
         pub fn deinit(self: Self) void {
             self.allocator.free(self.ndarray_view.shape);
@@ -104,17 +114,23 @@ pub fn Ndarray(T: type) type {
             self.allocator.free(self.ndarray_view._buffer);
         }
 
-        pub fn fill(self: *Self, fill_value: []usize) void { self.ndarray_view.fill(fill_value); }
-        pub fn at(self: *const Self, index: []const usize) *T { return self.ndarray_view.at(index); }
-        pub fn slice(self: *const Self, index: []const usize) NdarrayView(T) { return self.ndarray_view.slice(index); }
-        pub fn write(self: *const Self, data: []const T) void { return self.ndarray_view.write(data); }
-        pub fn g(self: *const Self, index: usize) NdarrayView(T) { return self.ndarray_view.g(index); }
-
+        pub fn fill(self: *Self, fill_value: []usize) void {
+            self.ndarray_view.fill(fill_value);
+        }
+        pub fn at(self: *const Self, index: []const usize) *T {
+            return self.ndarray_view.at(index);
+        }
+        pub fn slice(self: *const Self, index: []const usize) NdarrayView(T) {
+            return self.ndarray_view.slice(index);
+        }
+        pub fn write(self: *const Self, data: []const T) void {
+            return self.ndarray_view.write(data);
+        }
     };
 }
 
 fn create_ndarray() Ndarray(u8) {
-    return Ndarray(u8).init(&[_]usize{ 3, 6, 9, 10}, std.testing.allocator);
+    return Ndarray(u8).init(&[_]usize{ 3, 6, 9, 10 }, std.testing.allocator);
 }
 
 test "Ndarray owns all data and doesn't leak" {
@@ -138,7 +154,7 @@ test "Ndarray slicing" {
     array.write(&[_]u8{ 0, 1, 4, 5, 11, 12 });
 
     const slice = array.slice(&.{1});
-    try std.testing.expectEqualDeep(&[_]u8{4, 5}, slice._buffer);
+    try std.testing.expectEqualDeep(&[_]u8{ 4, 5 }, slice._buffer);
 }
 
 test "Ndarray writing to a view modifies the ndarray" {
@@ -146,33 +162,34 @@ test "Ndarray writing to a view modifies the ndarray" {
     defer array.deinit();
     array.write(&[_]u8{ 0, 1, 4, 5, 11, 12 });
 
-    array.slice(&.{1}).write(&.{2, 3});
-    array.slice(&.{2}).write(&.{4, 5});
+    array.slice(&.{1}).write(&.{ 2, 3 });
+    array.slice(&.{2}).write(&.{ 4, 5 });
     try std.testing.expectEqualDeep(&[_]u8{ 0, 1, 2, 3, 4, 5 }, array.buffer());
 }
 
 test "Ndarray indexing" {
     var array: Ndarray(u8) = Ndarray(u8).init(&[_]usize{ 2, 2, 4 }, std.testing.allocator);
     defer array.deinit();
-    
-    const trash_multidimensional_array = [2][2][4]u8{
-        .{ 
-            .{ 'a', 'b', 'c', 'd' },
-            .{ 'e', 'f', 'g', 'h' },
-        },
-        .{
-            .{ 'i', 'j', 'k', 'l'},
-            .{ 'm', 'n', 'o', 'p'},
-        }
-    };
 
-    for (0..2) |x| { for (0..2) |y| { for (0..4) |z| {
-        array.at(&[_]usize{ x, y, z }).* = trash_multidimensional_array[x][y][z];
-    }}}
+    const trash_multidimensional_array = [2][2][4]u8{ .{
+        .{ 'a', 'b', 'c', 'd' },
+        .{ 'e', 'f', 'g', 'h' },
+    }, .{
+        .{ 'i', 'j', 'k', 'l' },
+        .{ 'm', 'n', 'o', 'p' },
+    } };
+
+    for (0..2) |x| {
+        for (0..2) |y| {
+            for (0..4) |z| {
+                array.at(&[_]usize{ x, y, z }).* = trash_multidimensional_array[x][y][z];
+            }
+        }
+    }
 
     try std.testing.expectEqual('g', array.at(&.{ 0, 1, 2 }).*);
 
     try std.testing.expectEqual(2 * 2 * 4, array.buffer().len);
     try std.testing.expectEqualDeep(&[_]u8{ 'e', 'f', 'g', 'h' }, array.slice(&.{ 0, 1 }).buffer());
-    try std.testing.expectEqualDeep(&[_]u8{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'}, array.buffer()[0..9]);
+    try std.testing.expectEqualDeep(&[_]u8{ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i' }, array.buffer()[0..9]);
 }

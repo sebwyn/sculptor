@@ -6,8 +6,8 @@ const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 
 pub const VoxelObject = struct {
     transform_buffer: GraphicsContext.Buffer(zlm.Mat4),
-    palette: Texture([4]u8, 1),
-    voxels: Texture(u8, 3),
+    palette: Texture(1),
+    voxels: Texture(3),
 
     fn deinit(self: *const VoxelObject, gc: *const GraphicsContext) void {
         self.transform_buffer.deinit(gc);
@@ -84,9 +84,9 @@ pub const VoxelObjectStore = struct {
         errdefer transform_buffer.deinit(self.gc);
         _ = try transform_buffer.map(self.gc);
         try transform_buffer.write(self.gc, &.{zlm.Mat4.identity});
-        const palette = try Texture([4]u8, 1).init(self.gc, .{255}, .{});
+        const palette = try Texture(1).init(self.gc, .{255}, .{});
         errdefer palette.deinit(self.gc);
-        const voxels = try Texture(u8, 3).init(self.gc, size, .{ .format = .r8_unorm });
+        const voxels = try Texture(3).init(self.gc, size, .{ .format = .r8_unorm });
         errdefer voxels.deinit(self.gc);
 
         self.voxel_objects[self.object_count] = VoxelObject{

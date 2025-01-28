@@ -64,7 +64,6 @@ fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
 const PI = 3.14159265;
 
 pub fn main() !void {
-
     glfw.setErrorCallback(errorCallback);
     if (!glfw.init(.{})) {
         std.log.err("failed to initialize GLFW: {?s}", .{glfw.getErrorString()});
@@ -79,7 +78,6 @@ pub fn main() !void {
         @panic("Your leaking dog");
     };
     const general_allocator = gpa.allocator();
-
 
     var window = try Window.init(general_allocator, 800, 600, "sculptor");
     defer window.deinit();
@@ -133,9 +131,9 @@ pub fn main() !void {
 
     const pipeline = try createPipeline(&gc, pipeline_layout, render_pass);
     defer gc.vkd.destroyPipeline(gc.dev, pipeline, null);
-    
+
     const depth_texture_options = .{ .format = .d32_sfloat, .usage = .{ .depth_stencil_attachment_bit = true }, .aspect_mask = .{ .depth_bit = true } };
-    var depth_texture = try Texture(f32, 2).init(&gc, .{ swapchain.extent.width, swapchain.extent.height }, depth_texture_options);
+    var depth_texture = try Texture(2).init(&gc, .{ swapchain.extent.width, swapchain.extent.height }, depth_texture_options);
     defer depth_texture.deinit(&gc);
 
     var framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain, &depth_texture);
@@ -179,7 +177,7 @@ pub fn main() !void {
         gc.vkd.updateDescriptorSets(gc.dev, 1, &.{camera_write_descriptor}, 0, null);
     }
 
-    _ = try read_vox_file("assets/voxel-model/vox/scan/dragon.vox", general_allocator, &voxel_object_store);
+    _ = try read_vox_file("assets/voxel-model/vox/monument/monu1.vox", general_allocator, &voxel_object_store);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
@@ -219,8 +217,8 @@ pub fn main() !void {
             extent.height = @intCast(size.height);
             try swapchain.recreate(extent);
 
-            depth_texture.deinit(&gc); 
-            depth_texture = try Texture(f32, 2).init(&gc, .{ swapchain.extent.width, swapchain.extent.height }, depth_texture_options);
+            depth_texture.deinit(&gc);
+            depth_texture = try Texture(2).init(&gc, .{ swapchain.extent.width, swapchain.extent.height }, depth_texture_options);
 
             destroyFramebuffers(&gc, allocator, framebuffers);
             framebuffers = try createFramebuffers(&gc, allocator, render_pass, swapchain, &depth_texture);
@@ -344,7 +342,7 @@ fn destroyCommandBuffers(gc: *const GraphicsContext, pool: vk.CommandPool, alloc
     allocator.free(cmdbufs);
 }
 
-fn createFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_texture: *const Texture(f32, 2)) ![]vk.Framebuffer {
+fn createFramebuffers(gc: *const GraphicsContext, allocator: std.mem.Allocator, render_pass: vk.RenderPass, swapchain: Swapchain, depth_texture: *const Texture(2)) ![]vk.Framebuffer {
     const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
     errdefer allocator.free(framebuffers);
 
