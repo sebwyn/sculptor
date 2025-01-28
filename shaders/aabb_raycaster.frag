@@ -30,13 +30,6 @@ bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out floa
     return outTmax >= outTmin;
 }
 
-bool isVoxel(vec3 pos, vec3 halfGridSize, vec3 gridSize) {
-  vec3 p = pos + halfGridSize;
-  return  -0.1 <= p.x && p.x <= gridSize.x + 0.1 &&
-   - 0.1 <= p.y && p.y <= gridSize.y + 0.1 &&
-   -0.1 <= p.z && p.z <= gridSize.z + 0.1; 
-}
-
 float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   vec3 texCoord = (pos + halfGridSize) / gridSize;
   return texture(voxels, texCoord).r;

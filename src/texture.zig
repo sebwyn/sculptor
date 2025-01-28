@@ -58,37 +58,37 @@ fn sizeofFormat(format: vk.Format) usize {
     };
 }
 
-pub fn Texture(comptime dimensions: comptime_int) type {
+pub fn Texture(comptime TexelType: type, comptime dimensions: comptime_int) type {
     return struct {
         pub const StagingBuffer = struct {
-            texture: *const Texture(dimensions),
-            buffer: GraphicsContext.Buffer(u8),
+            texture: *const Texture(TexelType, dimensions),
+            buffer: GraphicsContext.Buffer(TexelType),
 
-            array: NdarrayView(u8),
+            array: NdarrayView(TexelType),
             allocator: std.mem.Allocator,
 
             fn init(texture: *const Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) !StagingBuffer {
                 const usage_flags: vk.BufferUsageFlags = .{ .transfer_src_bit = true };
                 const memory_properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true, .host_coherent_bit = true };
-                var buffer = try gc.allocateBuffer(u8, texture.byteSize(), usage_flags, memory_properties);
+                var buffer = try gc.allocateBuffer(TexelType, texture.extent[0] * texture.extent[1] * texture.extent[2], usage_flags, memory_properties);
 
                 var strides = allocator.alloc(usize, dimensions) catch unreachable;
                 var shape_ = allocator.alloc(usize, dimensions) catch unreachable;
 
-                var current_stride = texture.byteSize();
+                var current_stride: usize = 1;
                 for (0.., texture.size) |i, axis_len| {
-                    current_stride /= axis_len;
                     strides[i] = current_stride;
+                    current_stride *= axis_len;
                     shape_[i] = @intCast(axis_len);
                 }
 
-                const array = NdarrayView(u8){
+                const array = NdarrayView(TexelType) {
                     ._buffer = try buffer.map(gc),
                     .shape = shape_,
                     .strides = strides,
                 };
 
-                return StagingBuffer{
+                return StagingBuffer {
                     .buffer = buffer,
                     .texture = texture,
                     .array = array,
@@ -102,10 +102,10 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 self.buffer.deinit(gc);
             }
 
-            pub fn slice(self: *const StagingBuffer, index: []const usize) NdarrayView(u8) {
+            pub fn slice(self: *const StagingBuffer, index: []const usize) NdarrayView(TexelType) {
                 return self.array.slice(index);
             }
-            pub fn at(self: *const StagingBuffer, index: []const usize) *u8 {
+            pub fn at(self: *const StagingBuffer, index: []const usize) *TexelType {
                 return self.array.at(index);
             }
             pub fn write(self: *const StagingBuffer, data: []const u8) void {
