@@ -176,9 +176,9 @@ pub fn main() !void {
         const camera_write_descriptor = vk.WriteDescriptorSet{ .descriptor_type = .uniform_buffer, .dst_set = camera_descriptor_sets[i], .dst_binding = 0, .dst_array_element = 0, .descriptor_count = 1, .p_buffer_info = &.{uniform_buffers[i].getBufferInfo()}, .p_image_info = &[_]vk.DescriptorImageInfo{}, .p_texel_buffer_view = &[_]vk.BufferView{} };
         gc.vkd.updateDescriptorSets(gc.dev, 1, &.{camera_write_descriptor}, 0, null);
     }
-
-    _ = try read_vox_file("assets/voxel-model/vox/scan/dragon.vox", general_allocator, &voxel_object_store);
-    _ = try read_vox_file("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
+    
+    _ = try read_vox_file("assets/voxel-model/vox/monument/monu8.vox", general_allocator, &voxel_object_store);
+    // _ = try read_vox_file("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);

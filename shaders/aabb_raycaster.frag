@@ -120,7 +120,12 @@ void main() {
     Intersection intersection = maybe_intersection.i;
     
     vec3 lightPos = vec3(20, 20, 20);
-    f_color = texture(palette, intersection.voxel) + 0.1 * vec4(intersection.normal, 0.0);
+    MaybeIntersection light_occlusion_intersection = castRay(intersection.pos, normalize(lightPos - intersection.pos));
+    if (light_occlusion_intersection.intersects && distance(intersection.pos, light_occlusion_intersection.i.pos) < distance(intersection.pos, lightPos)) {
+      f_color = vec4(texture(palette, intersection.voxel).xyz * 0.05, 1.0);
+    } else {
+      f_color = vec4(texture(palette, intersection.voxel).xyz * max(0.05, dot(normalize(lightPos - intersection.pos), intersection.normal)), 1.0);
+    }
     gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
   } else {
     discard;

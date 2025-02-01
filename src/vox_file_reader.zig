@@ -65,7 +65,7 @@ fn read_all_chunks(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator
 
             const palette_staging_buffer = try first_object.palette.createStagingBuffer(voxel_store.gc, allocator);
             defer palette_staging_buffer.deinit(voxel_store.gc);
-            for (0..254) |i| {
+            for (1..255) |i| {
                 var rgba: [4]u8 = undefined;
                 _ = try file_reader.read(&rgba);
                 palette_staging_buffer.slice(&.{i}).write(&rgba);
