@@ -62,3 +62,9 @@
 
  - Could certain objects like pipelines be encoded in more a config structure [see libconfig](https://hyperrealm.github.io/libconfig/)
  - Improving rendering performance: [GDC talk](https://gdcvault.com/play/1020791/)
+
+## Sparse Voxel Octree Rendering resources
+
+ - Absurd [NVIDIA paper from 2010](https://research.nvidia.com/sites/default/files/pubs/2010-02_Efficient-Sparse-Voxel/laine2010tr1_paper.pdf), 1mm detail over 600 square foot surface area triangle meshes, also absurdly optimized
+ and would take me a long time to implement
+ - [Another resource](https://eisenwave.github.io/voxel-compression-docs/properties.html) that might explain more or be slightly simpler link
