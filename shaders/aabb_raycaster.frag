@@ -30,15 +30,21 @@ bool rayCubeIntersect(vec3 cubeMin, vec3 cubeMax, vec3 ro, vec3 rd_inv, out floa
     return outTmax >= outTmin;
 }
 
-float getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
+vec4 getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   vec3 texCoord = (pos + halfGridSize) / gridSize;
-  return texture(voxels, texCoord).r;
+  float palette_index = texture(voxels, texCoord).r;
+  if (palette_index > 0) {
+    return texture(palette, palette_index);
+  } else {
+    return vec4(0.0);
+  }
 }
 
 struct Intersection {
   vec3 pos;
   vec3 normal;
-  float voxel;
+  vec4 voxel_color;
+  float distance;
 }; 
 
 struct MaybeIntersection {
@@ -68,37 +74,46 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   int iterations = 0;
   
   vec3 normal = bboxNormal;
-  float tIntersection = -1;
+  intersection.distance = tMin;
 
-  intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
-  if (intersection.voxel > 0) {
+  float sum_of_alpha_values = 0.0;
+  vec3 accumulated_color = vec3(0.0);
+
+  intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
+  vec3 step_axis;
+  if (intersection.voxel_color.z > 0.99) {
     maybe_intersection.intersects = true;
     intersection.pos = startPos;
     intersection.normal = bboxNormal;
     maybe_intersection.i = intersection;
-  } else {
-    for (int i = 0; i < 500; ++i) {
-      vec3 cmp = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
-      voxelPos += grid_delta * cmp;
+    return maybe_intersection;
+  }
 
-      vec3 tVec = tMax * cmp;
-      tIntersection = max(max(tVec.x, tVec.y), tVec.z);
-      if (tIntersection > tMaxOfBoundingBox - tMin) { break; }
+  for (int i = 0; i < 500; ++i) {
+    step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
+    vec3 tVec = tMax * step_axis;
 
-      intersection.voxel = getVoxel(voxelPos, gridSize, halfGridSize);
-      if(intersection.voxel > 0) { 
-        maybe_intersection.intersects = true;
-        intersection.pos = startPos + ray * (tIntersection);
-        intersection.normal = -1 * grid_delta * cmp;
-        maybe_intersection.i = intersection;
-        break; 
-      }
+    intersection.distance = tMin + max(max(tVec.x, tVec.y), tVec.z);
+    if (intersection.distance > tMaxOfBoundingBox - 0.02) { break; }
 
-      tMax += tDelta * cmp;
-    }
-  } 
-
+    voxelPos += grid_delta * step_axis;
+    intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
   
+    sum_of_alpha_values += intersection.voxel_color.a;
+    accumulated_color += intersection.voxel_color.rgb * intersection.voxel_color.a;
+
+    if(intersection.voxel_color.a > 0.9) { break; } 
+
+    tMax += tDelta * step_axis;
+  }
+
+  if(sum_of_alpha_values > 0.0) { 
+    intersection.voxel_color = vec4(accumulated_color / sum_of_alpha_values, 1.0);
+    maybe_intersection.intersects = true;
+    intersection.pos = origin + ray * (intersection.distance);
+    intersection.normal = -1 * grid_delta * step_axis;
+    maybe_intersection.i = intersection;
+  } 
   return maybe_intersection;
 }
 
@@ -119,13 +134,14 @@ void main() {
   if (maybe_intersection.intersects) {
     Intersection intersection = maybe_intersection.i;
     
-    vec3 lightPos = vec3(20, 20, 20);
-    MaybeIntersection light_occlusion_intersection = castRay(intersection.pos, normalize(lightPos - intersection.pos));
-    if (light_occlusion_intersection.intersects && distance(intersection.pos, light_occlusion_intersection.i.pos) < distance(intersection.pos, lightPos)) {
-      f_color = vec4(texture(palette, intersection.voxel).xyz * 0.05, 1.0);
-    } else {
-      f_color = vec4(texture(palette, intersection.voxel).xyz * max(0.05, dot(normalize(lightPos - intersection.pos), intersection.normal)), 1.0);
+    vec3 lightPos = vec3(30, 30, 30);
+
+    float brightness = 0.05;
+    MaybeIntersection light_occlusion_intersection = castRay(intersection.pos + intersection.normal * 0.001, normalize(lightPos - intersection.pos));
+    if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
+      brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
     }
+    f_color = vec4(intersection.voxel_color.rgb * brightness, 1.0);
     gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
   } else {
     discard;
