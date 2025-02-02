@@ -59,12 +59,12 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   MaybeIntersection maybe_intersection;
   maybe_intersection.intersects = false;
 
-  float tMin;
-  float tMaxOfBoundingBox;
+  float bboxTMin;
+  float bboxTMax;
   vec3 bboxNormal;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, tMin, tMaxOfBoundingBox, bboxNormal)) { return maybe_intersection; }
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, bboxTMin, bboxTMax, bboxNormal)) { return maybe_intersection; }
   
-  vec3 startPos = origin + ray * tMin;
+  vec3 startPos = origin + ray * bboxTMin;
   vec3 voxelPos = floor(startPos);
   vec3 grid_delta = sign(ray);
 
@@ -74,7 +74,7 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   int iterations = 0;
   
   vec3 normal = bboxNormal;
-  intersection.distance = tMin;
+  intersection.distance = bboxTMin;
 
   float sum_of_alpha_values = 0.0;
   vec3 accumulated_color = vec3(0.0);
@@ -93,8 +93,8 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
     step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
     vec3 tVec = tMax * step_axis;
 
-    intersection.distance = tMin + max(max(tVec.x, tVec.y), tVec.z);
-    if (intersection.distance > tMaxOfBoundingBox - 0.02) { break; }
+    intersection.distance = bboxTMin + max(max(tVec.x, tVec.y), tVec.z);
+    if (intersection.distance > bboxTMax - 0.0002) { break; }
 
     voxelPos += grid_delta * step_axis;
     intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
@@ -110,7 +110,7 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   if(sum_of_alpha_values > 0.0) { 
     intersection.voxel_color = vec4(accumulated_color / sum_of_alpha_values, 1.0);
     maybe_intersection.intersects = true;
-    intersection.pos = origin + ray * (intersection.distance);
+    intersection.pos = origin + ray * intersection.distance;
     intersection.normal = -1 * grid_delta * step_axis;
     maybe_intersection.i = intersection;
   } 
@@ -118,7 +118,6 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
 }
 
 void main() {
-  
   vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
   projected_near.y *= -1.0;
   
