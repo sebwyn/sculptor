@@ -278,23 +278,16 @@ pub const GraphicsContext = struct {
         self.vkd.freeCommandBuffers(self.dev, pool, 1, @ptrCast(&command_buffer));
     }
 
-    pub fn transitionImageLayout(
-        self: GraphicsContext,
-        command_buffer: vk.CommandBuffer,
-        image: vk.Image,
-        subresource_range: vk.ImageSubresourceRange,
-        old_layout: vk.ImageLayout,
-        new_layout: vk.ImageLayout
-    ) !void {
+    pub fn transitionImageLayout(self: GraphicsContext, command_buffer: vk.CommandBuffer, image: vk.Image, subresource_range: vk.ImageSubresourceRange, old_layout: vk.ImageLayout, new_layout: vk.ImageLayout) !void {
         var barrier: vk.ImageMemoryBarrier = .{
             .old_layout = old_layout,
             .new_layout = new_layout,
-            .src_queue_family_index = self.graphics_queue.family,   
-            .dst_queue_family_index = self.graphics_queue.family,   
+            .src_queue_family_index = self.graphics_queue.family,
+            .dst_queue_family_index = self.graphics_queue.family,
             .image = image,
             .subresource_range = subresource_range,
-            .src_access_mask = .{ .shader_read_bit =  true },
-            .dst_access_mask = .{ .shader_read_bit =  true },
+            .src_access_mask = .{ .shader_read_bit = true },
+            .dst_access_mask = .{ .shader_read_bit = true },
         };
 
         var source_stage: ?vk.PipelineStageFlags = null;
@@ -303,26 +296,18 @@ pub const GraphicsContext = struct {
             barrier.src_access_mask = .{};
             barrier.dst_access_mask = .{ .transfer_write_bit = true };
 
-            source_stage = .{ .top_of_pipe_bit =  true};
-            destination_stage = .{ .transfer_bit =  true };
+            source_stage = .{ .top_of_pipe_bit = true };
+            destination_stage = .{ .transfer_bit = true };
         } else if (old_layout == .transfer_dst_optimal and new_layout == .shader_read_only_optimal) {
             barrier.src_access_mask = .{ .transfer_write_bit = true };
-            barrier.dst_access_mask = .{ .shader_read_bit =  true };
-            source_stage = .{ .transfer_bit =  true };
+            barrier.dst_access_mask = .{ .shader_read_bit = true };
+            source_stage = .{ .transfer_bit = true };
             destination_stage = .{ .fragment_shader_bit = true };
         } else {
             return error.Unknown;
         }
 
-        self.vkd.cmdPipelineBarrier(
-            command_buffer, 
-            source_stage.?, 
-            destination_stage.?, 
-            .{ .by_region_bit =  true },
-            0, null,
-            0, null,
-            1, @ptrCast(&barrier)
-        );
+        self.vkd.cmdPipelineBarrier(command_buffer, source_stage.?, destination_stage.?, .{ .by_region_bit = true }, 0, null, 0, null, 1, @ptrCast(&barrier));
     }
 
     pub fn Buffer(Data: type) type {
@@ -336,12 +321,12 @@ pub const GraphicsContext = struct {
             pub fn getBufferInfo(self: *const Self) vk.DescriptorBufferInfo {
                 return vk.DescriptorBufferInfo{ .buffer = self.vk_handle, .offset = 0, .range = @sizeOf(Data) * @as(u64, self.length) };
             }
-            
+
             pub fn map(self: *Self, gc: *const GraphicsContext) ![]Data {
-                 if (self.data_ptr == null) {
-                     self.data_ptr = @ptrCast(@alignCast(try gc.vkd.mapMemory(gc.dev, self.memory, 0, vk.WHOLE_SIZE, .{})));
-                 }
-                 return self.data_ptr.?[0..self.length];
+                if (self.data_ptr == null) {
+                    self.data_ptr = @ptrCast(@alignCast(try gc.vkd.mapMemory(gc.dev, self.memory, 0, vk.WHOLE_SIZE, .{})));
+                }
+                return self.data_ptr.?[0..self.length];
             }
 
             pub fn unmap(self: *Self, gc: *const GraphicsContext) void {
@@ -363,7 +348,9 @@ pub const GraphicsContext = struct {
             }
 
             pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
-                if (self.data_ptr) |_| { gc.vkd.unmapMemory(gc.dev, self.memory); }
+                if (self.data_ptr) |_| {
+                    gc.vkd.unmapMemory(gc.dev, self.memory);
+                }
                 gc.vkd.freeMemory(gc.dev, self.memory, null);
                 gc.vkd.destroyBuffer(gc.dev, self.vk_handle, null);
             }
@@ -387,8 +374,8 @@ pub const GraphicsContext = struct {
         errdefer self.vkd.freeMemory(self.dev, memory, null);
 
         try self.vkd.bindBufferMemory(self.dev, buffer, memory, 0);
-        
-        return Buffer(T) {
+
+        return Buffer(T){
             .vk_handle = buffer,
             .memory = memory,
             .length = length,

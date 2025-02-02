@@ -69,7 +69,6 @@ pub const Swapchain = struct {
         errdefer gc.vkd.destroySwapchainKHR(gc.dev, handle, null);
 
         if (old_handle != .null_handle) {
-            // Apparently, the old swapchain handle still needs to be destroyed after recreating.
             gc.vkd.destroySwapchainKHR(gc.dev, old_handle, null);
         }
 
@@ -99,6 +98,8 @@ pub const Swapchain = struct {
     }
 
     fn deinitExceptSwapchain(self: Swapchain) void {
+        self.gc.vkd.queueWaitIdle(self.gc.present_queue.handle) catch {};
+
         for (self.swap_images) |si| si.deinit(self.gc);
         self.gc.vkd.destroySemaphore(self.gc.dev, self.next_image_acquired, null);
     }
@@ -301,7 +302,7 @@ fn findPresentMode(gc: *const GraphicsContext, allocator: Allocator) !vk.Present
     _ = try gc.vki.getPhysicalDeviceSurfacePresentModesKHR(gc.pdev, gc.surface, &count, present_modes.ptr);
 
     const preferred = [_]vk.PresentModeKHR{
-        .fifo_khr,
+        .fifo_khr, //this enables VSYNC, my gpu will burn itself out rendering these simple scenes at 4000 fps
         .mailbox_khr,
         .immediate_khr,
     };

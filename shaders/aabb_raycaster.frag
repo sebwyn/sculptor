@@ -40,11 +40,15 @@ vec4 getVoxel(vec3 pos, vec3 gridSize, vec3 halfGridSize) {
   }
 }
 
+const uint Diffuse = 1u;
+const uint Refract = 2u;
+
 struct Intersection {
+  float distance;
   vec3 pos;
   vec3 normal;
   vec4 voxel_color;
-  float distance;
+  uint type;
 }; 
 
 struct MaybeIntersection {
@@ -55,14 +59,15 @@ struct MaybeIntersection {
 MaybeIntersection castRay(vec3 origin, vec3 ray) {
   vec3 gridSize = textureSize(voxels, 0);
   vec3 halfGridSize = gridSize/2;
+
   Intersection intersection;
-  MaybeIntersection maybe_intersection;
-  maybe_intersection.intersects = false;
+  MaybeIntersection maybeIntersection;
+  maybeIntersection.intersects = false;
 
   float bboxTMin;
   float bboxTMax;
   vec3 bboxNormal;
-  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, bboxTMin, bboxTMax, bboxNormal)) { return maybe_intersection; }
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, bboxTMin, bboxTMax, bboxNormal)) { return maybeIntersection; }
   
   vec3 startPos = origin + ray * bboxTMin;
   vec3 voxelPos = floor(startPos);
@@ -71,76 +76,80 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
   vec3 tDelta = min(1/abs(ray), 1000000);
   vec3 tMax = abs(((voxelPos + max(grid_delta, 0)) - startPos) / ray);
 
-  int iterations = 0;
-  
   vec3 normal = bboxNormal;
+
   intersection.distance = bboxTMin;
-
-  float sum_of_alpha_values = 0.0;
-  vec3 accumulated_color = vec3(0.0);
-
   intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
-  vec3 step_axis;
   if (intersection.voxel_color.z > 0.99) {
-    maybe_intersection.intersects = true;
     intersection.pos = startPos;
     intersection.normal = bboxNormal;
-    maybe_intersection.i = intersection;
-    return maybe_intersection;
+
+    maybeIntersection.intersects = true;
+    maybeIntersection.i = intersection;
+    return maybeIntersection;
   }
 
   for (int i = 0; i < 500; ++i) {
-    step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
+    vec3 step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
     vec3 tVec = tMax * step_axis;
-
     intersection.distance = bboxTMin + max(max(tVec.x, tVec.y), tVec.z);
     if (intersection.distance > bboxTMax - 0.0002) { break; }
 
+    tMax += tDelta * step_axis;
+
     voxelPos += grid_delta * step_axis;
     intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
-  
-    sum_of_alpha_values += intersection.voxel_color.a;
-    accumulated_color += intersection.voxel_color.rgb * intersection.voxel_color.a;
 
-    if(intersection.voxel_color.a > 0.9) { break; } 
+    if(intersection.voxel_color.a > 0.0) { 
+      intersection.pos = origin + ray * intersection.distance;
+      intersection.normal = -1 * grid_delta * step_axis;
+      intersection.type = intersection.voxel_color.a > 0.99 ? Diffuse : Refract;
 
-    tMax += tDelta * step_axis;
+      maybeIntersection.intersects = true;
+      maybeIntersection.i = intersection;
+      break; 
+    }
   }
 
-  if(sum_of_alpha_values > 0.0) { 
-    intersection.voxel_color = vec4(accumulated_color / sum_of_alpha_values, 1.0);
-    maybe_intersection.intersects = true;
-    intersection.pos = origin + ray * intersection.distance;
-    intersection.normal = -1 * grid_delta * step_axis;
-    maybe_intersection.i = intersection;
-  } 
-  return maybe_intersection;
+  return maybeIntersection;
 }
 
 void main() {
   vec4 projected_near = vec4(gl_FragCoord.xy / (uniforms.screen_size/2.0) - vec2(1.0), 0.0, 1.0);
   projected_near.y *= -1.0;
   
-  mat4x4 inverseCameraMatrix = inverse(uniforms.proj * uniforms.view * voxel_transform.mat);
+  mat4x4 inverseViewMat = inverse(uniforms.view * voxel_transform.mat);
+
+  mat4x4 inverseCameraMatrix = inverseViewMat * inverse(uniforms.proj);
   vec4 near4 = (inverseCameraMatrix * projected_near); 
   vec4 far4 = near4 + inverseCameraMatrix[2];
-  vec3 near = near4.xyz / near4.w;
   vec3 far = far4.xyz / far4.w;
-  vec3 cameraPos = near;
-  vec3 ray = normalize(far-near);
+  vec3 cameraPos = inverseViewMat[3].xyz;
+  vec3 ray = normalize(far-cameraPos);
   
-  MaybeIntersection maybe_intersection = castRay(cameraPos, ray);
-  if (maybe_intersection.intersects) {
-    Intersection intersection = maybe_intersection.i;
-    
-    vec3 lightPos = vec3(30, 30, 30);
+  vec3 lightPos = vec3(30, 30, 30);
 
-    float brightness = 0.05;
-    MaybeIntersection light_occlusion_intersection = castRay(intersection.pos + intersection.normal * 0.001, normalize(lightPos - intersection.pos));
-    if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
-      brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
+  MaybeIntersection maybeIntersection = castRay(cameraPos, ray);
+  if (maybeIntersection.intersects) {
+    Intersection intersection = maybeIntersection.i;
+    
+    if (intersection.type == Diffuse) {
+      float brightness = 0.05;
+      MaybeIntersection light_occlusion_intersection = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
+      if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
+        brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
+      }
+      f_color = vec4(intersection.voxel_color.rgb * brightness, 1.0);
+    } else {
+      f_color = intersection.voxel_color;
+
+      // float angleOfIncidence = acos(dot(ray, intersection.normal));
+      // float refractionAngleInWater = asin(sin(angleOfIncidence) / 1.333)
+      // rotate() 
+      //
+      // MaybeIntersection reflection_ray = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
+      // MaybeIntersection refraction_ray = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
     }
-    f_color = vec4(intersection.voxel_color.rgb * brightness, 1.0);
     gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
   } else {
     discard;
