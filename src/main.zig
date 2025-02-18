@@ -17,7 +17,9 @@ const NdarrayView = @import("ndarray.zig").NdarrayView;
 
 const VoxelObjectStore = @import("voxel_object_store.zig").VoxelObjectStore;
 
-const read_vox_file = @import("vox_file_reader.zig").read_vox_file;
+const generateTerrain = @import("perlin_terrain_generator.zig").generateTerrain;
+const generateHeightmapTerrain = @import("perlin_terrain_generator.zig").generateHeightmapTerrain;
+const readVoxFile = @import("vox_file_reader.zig").readVoxFile;
 
 const app_name = "mach-glfw + vulkan-zig = triangle";
 
@@ -177,7 +179,10 @@ pub fn main() !void {
         gc.vkd.updateDescriptorSets(gc.dev, 1, &.{camera_write_descriptor}, 0, null);
     }
     
-    _ = try read_vox_file("assets/voxel-model/vox/monument/monu8.vox", general_allocator, &voxel_object_store);
+
+    // _ = try generateTerrain([_]u32{ 256, 256, 256 }, general_allocator, &voxel_object_store, .{});
+    _ = try generateHeightmapTerrain([_]u32{ 256, 256, 256 }, general_allocator, &voxel_object_store, .{});
+    // _ = try readVoxFile("assets/voxel-model/vox/monument/monu8.vox", general_allocator, &voxel_object_store);
     // _ = try read_vox_file("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });

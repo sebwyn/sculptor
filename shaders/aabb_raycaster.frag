@@ -1,6 +1,7 @@
 #version 450
 
 const float PI = 3.14159265;
+const uint MAX_STEPS = 500;
 
 layout(location=0) out vec4 f_color;
 
@@ -49,6 +50,7 @@ struct Intersection {
   vec3 normal;
   vec4 voxel_color;
   uint type;
+  uint step_count;
 }; 
 
 struct MaybeIntersection {
@@ -89,7 +91,7 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
     return maybeIntersection;
   }
 
-  for (int i = 0; i < 500; ++i) {
+  for (int i = 0; i < MAX_STEPS; ++i) {
     vec3 step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
     vec3 tVec = tMax * step_axis;
     intersection.distance = bboxTMin + max(max(tVec.x, tVec.y), tVec.z);
@@ -104,14 +106,105 @@ MaybeIntersection castRay(vec3 origin, vec3 ray) {
       intersection.pos = origin + ray * intersection.distance;
       intersection.normal = -1 * grid_delta * step_axis;
       intersection.type = intersection.voxel_color.a > 0.99 ? Diffuse : Refract;
-
-      maybeIntersection.intersects = true;
+      intersection.step_count = i;
       maybeIntersection.i = intersection;
-      break; 
+      maybeIntersection.intersects = true;
+      break;
     }
+
   }
 
+
   return maybeIntersection;
+}
+
+
+MaybeIntersection castRayVolumetric(vec3 origin, vec3 ray) {
+  vec3 gridSize = textureSize(voxels, 0);
+  vec3 halfGridSize = gridSize/2;
+
+  Intersection intersection;
+  MaybeIntersection maybeIntersection;
+  maybeIntersection.intersects = false;
+
+  float bboxTMin;
+  float bboxTMax;
+  vec3 bboxNormal;
+  if(!rayCubeIntersect(-halfGridSize, halfGridSize, origin, 1/ray, bboxTMin, bboxTMax, bboxNormal)) { return maybeIntersection; }
+  
+  vec3 startPos = origin + ray * bboxTMin;
+  vec3 voxelPos = floor(startPos);
+  vec3 grid_delta = sign(ray);
+
+  vec3 tDelta = min(1/abs(ray), 1000000);
+  vec3 tMax = abs(((voxelPos + max(grid_delta, 0)) - startPos) / ray);
+
+  vec3 normal = bboxNormal;
+
+  vec3 accumulatedColor = vec3(0.0);
+  float alphaWeights = 0.0;
+
+  intersection.distance = bboxTMin;
+  intersection.voxel_color = getVoxel(voxelPos, gridSize, halfGridSize);
+  if (intersection.voxel_color.z > 0.99) {
+    intersection.pos = startPos;
+    intersection.normal = bboxNormal;
+
+    maybeIntersection.intersects = true;
+    maybeIntersection.i = intersection;
+    return maybeIntersection;
+  }
+
+  for (int i = 0; i < MAX_STEPS; ++i) {
+    vec3 step_axis = step(tMax.xyz, tMax.zxy) * step(tMax.xyz, tMax.yzx);
+    vec3 tVec = tMax * step_axis;
+    intersection.distance = bboxTMin + max(max(tVec.x, tVec.y), tVec.z);
+    if (intersection.distance > bboxTMax - 0.0002) { break; }
+
+    tMax += tDelta * step_axis;
+
+    voxelPos += grid_delta * step_axis;
+    vec4 voxelColor = getVoxel(voxelPos, gridSize, halfGridSize);
+
+    alphaWeights += voxelColor.a;
+    accumulatedColor += voxelColor.a * voxelColor.rgb;
+
+    if(voxelColor.a > 0.0) { 
+      intersection.pos = origin + ray * intersection.distance;
+      intersection.normal = -1 * grid_delta * step_axis;
+      maybeIntersection.intersects = true;
+    }
+
+    if (voxelColor.a > 0.99) { break; }
+
+  }
+
+  intersection.voxel_color = vec4(accumulatedColor / alphaWeights, 1.0);
+  maybeIntersection.i = intersection;
+
+  return maybeIntersection;
+}
+
+float FresnelReflectAmount(float n1, float n2, vec3 normal, vec3 incident, float f0, float f90)
+{
+        // Schlick aproximation
+        float r0 = (n1-n2) / (n1+n2);
+        r0 *= r0;
+        float cosX = -dot(normal, incident);
+        if (n1 > n2)
+        {
+            float n = n1/n2;
+            float sinT2 = n*n*(1.0-cosX*cosX);
+            // Total internal reflection
+            if (sinT2 > 1.0)
+                return f90;
+            cosX = sqrt(1.0-sinT2);
+        }
+        float x = 1.0-cosX;
+        float ret = r0+(1.0-r0)*x*x*x*x*x;
+ 
+        // adjust reflect multiplier for object reflectivity
+        return mix(f0, f90, ret);
 }
 
 void main() {
@@ -130,27 +223,43 @@ void main() {
   vec3 lightPos = vec3(30, 30, 30);
 
   MaybeIntersection maybeIntersection = castRay(cameraPos, ray);
+  Intersection intersection = maybeIntersection.i;
+  float brightness = 0.05;
+  MaybeIntersection light_occlusion_intersection = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
+  if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
+    brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
+  }
   if (maybeIntersection.intersects) {
-    Intersection intersection = maybeIntersection.i;
-    
+    // for visualizing the number of steps taken in raytracing
+    // f_color = vec4(vec3(float(intersection.step_count) / 100.0), 1.0);
+    // gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
+
     if (intersection.type == Diffuse) {
       float brightness = 0.05;
       MaybeIntersection light_occlusion_intersection = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
       if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
         brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
       }
-      f_color = vec4(intersection.voxel_color.rgb * brightness, 1.0);
+      vec4 litColor =vec4(intersection.voxel_color.rgb * brightness, 1.0); 
+      f_color = litColor;
     } else {
-      f_color = intersection.voxel_color;
-
-      // float angleOfIncidence = acos(dot(ray, intersection.normal));
-      // float refractionAngleInWater = asin(sin(angleOfIncidence) / 1.333)
-      // rotate() 
-      //
-      // MaybeIntersection reflection_ray = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
-      // MaybeIntersection refraction_ray = castRay(intersection.pos + intersection.normal * 0.0001, normalize(lightPos - intersection.pos));
+      MaybeIntersection reflection_ray = castRay(intersection.pos + intersection.normal * 0.0001, reflect(ray, intersection.normal));
+      vec4 reflectionColor = reflection_ray.intersects ? reflection_ray.i.voxel_color : vec4(0.0);
+     
+      MaybeIntersection refraction_ray = castRayVolumetric(intersection.pos - intersection.normal * 0.0001, refract(ray, intersection.normal, 1.0 / 1.333));
+      vec4 refractionColor = refraction_ray.intersects ? refraction_ray.i.voxel_color : vec4(0.0);
+      MaybeIntersection light_occlusion_intersection = castRay(refraction_ray.i.pos + refraction_ray.i.normal * 0.0001, normalize(lightPos - refraction_ray.i.pos));
+      if (!(light_occlusion_intersection.intersects && light_occlusion_intersection.i.distance < distance(intersection.pos, lightPos))) {
+        brightness = dot(normalize(lightPos - intersection.pos), intersection.normal);
+      } else {
+        brightness = 0.05;
+      }
+     
+      float reflectAmount = FresnelReflectAmount(1.0, 1.333, intersection.normal, ray, 0.02, 1.0);
+      f_color = vec4(refractionColor.rgb * brightness, 1.0);
+     
+     
     }
-    gl_FragDepth = distance(cameraPos, intersection.pos) / distance(cameraPos, far);
   } else {
     discard;
   }

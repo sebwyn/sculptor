@@ -6,7 +6,7 @@ const VoxelObject = @import("voxel_object_store.zig").VoxelObject;
 
 const VoxReaderError = error{ UnexpectedHeader, UnsupportedVersion, UnexpectedChunkType, ExpectedXYZIChunk, NoObjectsFound };
 
-pub fn read_vox_file(file_path: []const u8, allocator: std.mem.Allocator, voxel_store: *VoxelObjectStore) !void {
+pub fn readVoxFile(file_path: []const u8, allocator: std.mem.Allocator, voxel_store: *VoxelObjectStore) !void {
     const file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
 
@@ -23,10 +23,10 @@ pub fn read_vox_file(file_path: []const u8, allocator: std.mem.Allocator, voxel_
         return VoxReaderError.UnsupportedVersion;
     }
 
-    try read_all_chunks(file_reader, allocator, voxel_store);
+    try readAllChunks(file_reader, allocator, voxel_store);
 }
 
-fn read_chunk_header(file_reader: std.fs.File.Reader) !struct { id: [4]u8, chunk_len: i32, child_chunk_len: i32 } {
+fn readChunkHeader(file_reader: std.fs.File.Reader) !struct { id: [4]u8, chunk_len: i32, child_chunk_len: i32 } {
     var id: [4]u8 = undefined;
     _ = try file_reader.read(&id);
 
@@ -36,12 +36,12 @@ fn read_chunk_header(file_reader: std.fs.File.Reader) !struct { id: [4]u8, chunk
     return .{ .id = id, .chunk_len = chunk_len, .child_chunk_len = child_chunk_len };
 }
 
-fn read_all_chunks(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator, voxel_store: *VoxelObjectStore) !void {
+fn readAllChunks(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator, voxel_store: *VoxelObjectStore) !void {
     var object_refs = std.ArrayList(VoxelObjectStore.Ref).init(allocator);
     defer object_refs.deinit();
 
     while (true) {
-        const header = read_chunk_header(file_reader) catch |err| {
+        const header = readChunkHeader(file_reader) catch |err| {
             if (err == std.fs.File.Reader.NoEofError.EndOfStream) {
                 return;
             } else return err;
@@ -90,7 +90,7 @@ fn read_all_chunks(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator
 }
 
 fn read_xyzi_chunk_into_texture(file_reader: std.fs.File.Reader, allocator: std.mem.Allocator, voxel_store: *VoxelObjectStore, voxel_obj: *VoxelObject) !void {
-    const header = try read_chunk_header(file_reader);
+    const header = try readChunkHeader(file_reader);
 
     if (!std.mem.eql(u8, &header.id, "XYZI")) {
         return VoxReaderError.ExpectedXYZIChunk;

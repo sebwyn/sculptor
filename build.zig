@@ -152,6 +152,7 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
     const vulkan_zig = b.addModule("vulkan-zig", .{ .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"), });
 
     exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
+    exe.root_module.addImport("perlin", b.dependency("perlin", .{}).module("perlin"));
     exe.root_module.addImport("vulkan", vulkan_zig);
     exe.root_module.addImport("zlm", b.dependency("zlm", .{}).module("zlm"));
     

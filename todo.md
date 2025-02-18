@@ -14,6 +14,9 @@
     - [ ] emissive voxels
 - [ ] editing voxel structures
 - [ ] procedurally generated objects/structures
+    - [X] simple perlin terrain generation
+    - [ ] 
+    - [ ] 
 - [ ] testing with larger data
 - [ ] create my own voxel file format
 - [ ] unique materials/shaders (clouds, water, etc...)

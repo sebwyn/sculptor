@@ -39,6 +39,10 @@
             .url = "https://github.com/ziglibs/zlm/archive/35b76fae19f9d0a1ed541db621d7c4b3e266087e.tar.gz",
             .hash = "1220342ac333965de915f74a8425e4848ffe46852da0e4789103f9ec650c3cd22456",
         },
+        .perlin = .{
+            .url = "https://github.com/mgord9518/perlin-zig/archive/heads/main.tar.gz",
+            .hash = "12208b3a835f168e660e826f82d36a2b0ff3a1060fdeebd2b238bf2bd24a8d1faaff",
+        },
     },
     .paths = .{
         "build.zig",
