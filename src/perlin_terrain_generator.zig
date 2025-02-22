@@ -68,7 +68,7 @@ pub fn generateHeightmapTerrain(
             const fz: f32 = opts.perlin_cycles * @as(f32, @floatFromInt(z)) / @as(f32, @floatFromInt(size[2]));
 
             const perlin_value = std.math.clamp(perlin.noise(f32, .{ .x = fx, .y = opts.seed, .z = fz, }) + 0.5, 0.0, 1.0);
-            std.debug.print("{d} Too big??: {d}\n", .{ perlin_value, perlin_value * @as(f32, @floatFromInt(size[1])) * opts.peak_height });
+            // std.debug.print("{d} Too big??: {d}\n", .{ perlin_value, perlin_value * @as(f32, @floatFromInt(size[1])) * opts.peak_height });
             const highest_index: u32 = @intFromFloat(@floor(perlin_value * @as(f32, @floatFromInt(size[1])) * opts.peak_height));
             
 

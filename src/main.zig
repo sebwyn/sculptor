@@ -181,9 +181,9 @@ pub fn main() !void {
     
 
     // _ = try generateTerrain([_]u32{ 256, 256, 256 }, general_allocator, &voxel_object_store, .{});
-    _ = try generateHeightmapTerrain([_]u32{ 256, 256, 256 }, general_allocator, &voxel_object_store, .{});
+    _ = try generateHeightmapTerrain([_]u32{ 512, 60, 512 }, general_allocator, &voxel_object_store, .{ .peak_height = 0.4 });
     // _ = try readVoxFile("assets/voxel-model/vox/monument/monu8.vox", general_allocator, &voxel_object_store);
-    // _ = try read_vox_file("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
+    // _ = try readVoxFile("assets/voxel-model/vox/scan/teapot.vox", general_allocator, &voxel_object_store);
 
     const vertex_buffer = try gc.allocateBuffer(Vertex, vertices.len, .{ .transfer_dst_bit = true, .vertex_buffer_bit = true }, .{ .device_local_bit = true });
     defer vertex_buffer.deinit(&gc);
