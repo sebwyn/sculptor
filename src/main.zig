@@ -5,8 +5,9 @@ const zlm = @import("zlm").SpecializeOn(f32);
 
 const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const Swapchain = @import("swapchain.zig").Swapchain;
-const triangle_vert = @embedFile("triangle_vert");
-const triangle_frag = @embedFile("aabb_raycaster_frag");
+
+const triangle_vert = @embedFile("triangle_vert.spv");
+const triangle_frag = @embedFile("aabb_raycaster_frag.spv");
 
 const Window = @import("window.zig").Window;
 const CameraController = @import("camera_controller.zig").CameraController;
