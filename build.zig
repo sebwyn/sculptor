@@ -91,42 +91,35 @@ pub fn build(b: *std.Build) !void {
     check.dependOn(&exe_check.step);
 }
 
-fn compile_all_shaders(b: *std.Build) !struct{ std.ArrayList([]u8), std.ArrayList(std.Build.LazyPath) } {
+fn embed_shaders(b: *std.Build, module: *std.Build.Module) !void {
     var shader_dir = try std.fs.openDirAbsolute(b.path("shaders").getPath(b), .{ .iterate = true });
     defer shader_dir.close();
-
-    var shader_file_names = std.ArrayList([]u8).init(b.allocator);
-    var shader_file_paths = std.ArrayList(std.Build.LazyPath).init(b.allocator);
 
     var shader_paths = shader_dir.iterate();
     while (shader_paths.next() catch null) |input_file| {
         if (input_file.kind != .file) continue;
-
+        
         var name_extension = std.mem.splitSequence(u8, input_file.name, ".");
-        const name = name_extension.next() orelse continue;
+        _ = name_extension.next() orelse continue;
         const extension = name_extension.next() orelse continue;
 
         if (std.mem.eql(u8, extension, "vert") or
             std.mem.eql(u8, extension, "frag") or
             std.mem.eql(u8, extension, "glsl"))
         {
-            const output_file = try b.allocator.alloc(u8, input_file.name.len);
-            _ = try std.fmt.bufPrint(output_file, "{s}_{s}", .{ name, extension });
+            const output_file_name = try b.allocator.dupe(u8, input_file.name);
+            _ = std.mem.replace(u8, input_file.name, ".", "_", output_file_name);
 
-            const compiled_file_name = try b.allocator.alloc(u8, input_file.name.len + 4);
-            defer b.allocator.free(compiled_file_name);
-            _ = try std.fmt.bufPrint(compiled_file_name, "{s}.spv", .{output_file});
+            const compiled_file_name = b.fmt("{s}.spv", .{ output_file_name} );
 
-            const compile_vert_shader = b.addSystemCommand(&.{"glslc"});
-            compile_vert_shader.addFileArg(b.path(b.pathJoin(&.{ "shaders", input_file.name })));
-            compile_vert_shader.addArgs(&.{ "--target-env=vulkan1.1", "-o" });
-            const compiled_file = compile_vert_shader.addOutputFileArg(compiled_file_name);
-            try shader_file_names.append(output_file);
-            try shader_file_paths.append(compiled_file);
+            const compile_shader = b.addSystemCommand(&.{"glslc"});
+            compile_shader.addFileArg(b.path("shaders").path(b, input_file.name));
+            compile_shader.addArgs(&.{ "--target-env=vulkan1.1", "-o" });
+            const compiled_path = compile_shader.addOutputFileArg(compiled_file_name);
+            
+            module.addAnonymousImport(compiled_file_name, .{ .root_source_file = compiled_path });
         }
     }
-    
-    return .{ shader_file_names, shader_file_paths };
 }
 
 fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
@@ -156,20 +149,7 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
     exe.root_module.addImport("vulkan", vulkan_zig);
     exe.root_module.addImport("zlm", b.dependency("zlm", .{}).module("zlm"));
     
-    const compiled_shaders = try compile_all_shaders(b);
-    defer {
-        for (compiled_shaders[0].items) |name| { 
-            b.allocator.free(name); 
-        }
-        compiled_shaders[0].deinit();
-        compiled_shaders[1].deinit();
-    }
-    for (compiled_shaders[0].items, compiled_shaders[1].items) |name, path| {
-        exe.root_module.addAnonymousImport(name, .{
-            .root_source_file = path
-        });
-    }
-
+    _ = try embed_shaders(b, &exe.root_module);
 
     return exe;
 }
