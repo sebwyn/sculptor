@@ -43,6 +43,14 @@
             .url = "https://github.com/mgord9518/perlin-zig/archive/heads/main.tar.gz",
             .hash = "12208b3a835f168e660e826f82d36a2b0ff3a1060fdeebd2b238bf2bd24a8d1faaff",
         },
+        .@"SPIRV-Reflect" = .{
+            .url = "https://github.com/KhronosGroup/SPIRV-Reflect/archive/c637858562fbce1b6f5dc7ca48d4e8a5bd117b70.tar.gz",
+            .hash = "1220687ee9ec392772a9695df96bc9c374fe0877b7828e81cb82cb13f47affae4678",
+        },
+        .temp = .{
+            .url = "https://github.com/abhinav/temp.zig/archive/refs/tags/0.3.0.tar.gz",
+            .hash = "122095027cb551451a12706f958487bacc9bec1dfcd8c6bdacff890fb8d641755a58",
+        },
     },
     .paths = .{
         "build.zig",

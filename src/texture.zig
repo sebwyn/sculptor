@@ -137,13 +137,17 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             return byte_size;
         }
 
-        pub fn init(gc: *const GraphicsContext, size: [dimensions]u32, options: struct { format: vk.Format = .r8g8b8a8_srgb, usage: vk.ImageUsageFlags = .{ .transfer_dst_bit = true, .sampled_bit = true }, aspect_mask: vk.ImageAspectFlags = .{ .color_bit = true } }) !Self {
+        const TextureOptions = struct {
+            format: vk.Format = .r8g8b8a8_srgb,
+            usage: vk.ImageUsageFlags = .{ .transfer_dst_bit = true, .sampled_bit = true }, 
+            initial_layout: vk.ImageLayout = .undefined,
+            aspect_mask: vk.ImageAspectFlags = .{ .color_bit = true } 
+        };
+        pub fn init(gc: *const GraphicsContext, size: [dimensions]u32, options: struct {}) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
             for (0..size.len) |i| {
                 verbose_size[i] = size[i];
             }
-
-            const initial_layout: vk.ImageLayout = .undefined;
 
             const physical_properties = gc.vki.getPhysicalDeviceFormatProperties(gc.pdev, options.format);
             if (!physical_properties.optimal_tiling_features.contains(.{ .transfer_dst_bit = true })) {
@@ -163,7 +167,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
                 .tiling = .optimal,
                 .sharing_mode = .exclusive,
                 .extent = extentForSize(dimensions, verbose_size),
-                .initial_layout = initial_layout,
+                .initial_layout = options.initial_layout,
                 .usage = options.usage,
             };
 

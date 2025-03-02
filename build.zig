@@ -130,6 +130,15 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
         .optimize = optimize,
     });
 
+    const spirv_reflect_c = b.dependency("SPIRV-Reflect", .{ .target = target, .optimize = optimize });
+    exe.addIncludePath(spirv_reflect_c.path(""));
+    exe.addCSourceFiles(.{
+     .root = spirv_reflect_c.path(""),
+     .files = &.{"spirv_reflect.c"},
+    });
+    exe.installHeadersDirectory(spirv_reflect_c.path(""), "", .{
+        .include_extensions = &.{"spirv_reflect.h"}
+    });
     const glfw_dep = b.dependency("mach-glfw", .{ .target = target, .optimize = optimize, });
 
     const env = try std.process.getEnvMap(b.allocator);
@@ -143,7 +152,8 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
     const vk_generate_cmd = b.addRunArtifact(vk_gen);
     vk_generate_cmd.addFileArg(registry);
     const vulkan_zig = b.addModule("vulkan-zig", .{ .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"), });
-
+    
+    exe.root_module.addImport("temp", b.dependency("temp", .{ .target = target, .optimize = optimize }).module("temp"));
     exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
     exe.root_module.addImport("perlin", b.dependency("perlin", .{}).module("perlin"));
     exe.root_module.addImport("vulkan", vulkan_zig);
