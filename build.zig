@@ -35,7 +35,13 @@ pub fn build(b: *std.Build) !void {
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
-    const exe = try create_compile_step(b, target, optimize);
+    const exe = b.addExecutable(.{
+        .name = "sculptor",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    _ = try add_dependencies(b, exe, target, optimize);
     b.installArtifact(exe);
 
     // This *creates* a Run step in the build graph, to be executed when another
@@ -68,6 +74,8 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addImport("temp", b.dependency("temp", .{ .target = target, .optimize = optimize }).module("temp"));
+    _ = try add_dependencies(b, lib_unit_tests, target, optimize);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -86,8 +94,15 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
     
-    const exe_check = try create_compile_step(b, target, optimize);
-    const check = b.step("check", "Check if foo compiles");
+    const exe_check = b.addExecutable(.{
+        .name = "sculptor_check",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    _ = try add_dependencies(b, exe_check, target, optimize);
+
+    const check = b.step("check", "Check if sculptor compiles");
     check.dependOn(&exe_check.step);
 }
 
@@ -122,13 +137,7 @@ fn embed_shaders(b: *std.Build, module: *std.Build.Module) !void {
     }
 }
 
-fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = "sculptor",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+fn add_dependencies(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
 
     const spirv_reflect_c = b.dependency("SPIRV-Reflect", .{ .target = target, .optimize = optimize });
     exe.addIncludePath(spirv_reflect_c.path(""));
@@ -153,7 +162,6 @@ fn create_compile_step(b: *std.Build, target: std.Build.ResolvedTarget, optimize
     vk_generate_cmd.addFileArg(registry);
     const vulkan_zig = b.addModule("vulkan-zig", .{ .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"), });
     
-    exe.root_module.addImport("temp", b.dependency("temp", .{ .target = target, .optimize = optimize }).module("temp"));
     exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
     exe.root_module.addImport("perlin", b.dependency("perlin", .{}).module("perlin"));
     exe.root_module.addImport("vulkan", vulkan_zig);

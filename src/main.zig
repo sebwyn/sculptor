@@ -135,7 +135,7 @@ pub fn main() !void {
     const pipeline = try createPipeline(&gc, pipeline_layout, render_pass);
     defer gc.vkd.destroyPipeline(gc.dev, pipeline, null);
 
-    const depth_texture_options = .{ .format = .d32_sfloat, .usage = .{ .depth_stencil_attachment_bit = true }, .aspect_mask = .{ .depth_bit = true } };
+    const depth_texture_options = Texture(2).Options { .format = .d32_sfloat, .usage = .{ .depth_stencil_attachment_bit = true }, .aspect_mask = .{ .depth_bit = true } };
     var depth_texture = try Texture(2).init(&gc, .{ swapchain.extent.width, swapchain.extent.height }, depth_texture_options);
     defer depth_texture.deinit(&gc);
 

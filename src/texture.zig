@@ -137,13 +137,13 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             return byte_size;
         }
 
-        const TextureOptions = struct {
+        pub const Options = struct {
             format: vk.Format = .r8g8b8a8_srgb,
             usage: vk.ImageUsageFlags = .{ .transfer_dst_bit = true, .sampled_bit = true }, 
             initial_layout: vk.ImageLayout = .undefined,
             aspect_mask: vk.ImageAspectFlags = .{ .color_bit = true } 
         };
-        pub fn init(gc: *const GraphicsContext, size: [dimensions]u32, options: struct {}) !Self {
+        pub fn init(gc: *const GraphicsContext, size: [dimensions]u32, options: Options) !Self {
             var verbose_size: [3]u32 = .{ 1, 1, 1 };
             for (0..size.len) |i| {
                 verbose_size[i] = size[i];
@@ -219,7 +219,7 @@ pub fn Texture(comptime dimensions: comptime_int) type {
             return Self{
                 .sampler = sampler,
                 .image = image,
-                .image_layout = initial_layout,
+                .image_layout = options.initial_layout,
                 .descriptor = descriptor,
                 .view = image_view,
                 .memory = memory,
