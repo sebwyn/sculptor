@@ -1,8 +1,11 @@
 const vk = @import("vulkan");
 const std = @import("std");
+const GraphicsContext = @import("graphics_context.zig").GraphicsContext;
 const spirv_reflect = @cImport({
     @cInclude("spirv_reflect.h");
 });
+
+pub const ShaderError = error { UnexpectedShaderType, FailedToReflect, UnsupportedDescriptorType, UnsupportedShaderStage };
 
 pub const Shader = struct {
     files: []std.fs.path,
@@ -17,11 +20,11 @@ pub const Shader = struct {
         shader_stage: vk.ShaderStageFlags,
     };
     
-    pub const ShaderCreateInfo = struct {
+    pub const CreateInfo = struct {
         entry_point: []const u8,
         spirv: []const u8,
     };
-    pub fn init(allocator: std.mem.Allocator, shader_stages: []const ShaderCreateInfo) !Shader {
+    pub fn init(allocator: std.mem.Allocator, shader_stages: []const CreateInfo) !Shader {
         var uniforms = std.ArrayList(Uniform).init(allocator);
         errdefer uniforms.deinit();
 
@@ -65,6 +68,7 @@ pub const Shader = struct {
             }
         }
 
+
         return Shader {
             .files = &.{},
             .uniforms = uniforms,
@@ -78,34 +82,44 @@ pub const Shader = struct {
         }
         self.uniforms.deinit();
     }
-};
 
-pub const ShaderError = error { UnexpectedShaderType, FailedToReflect, UnsupportedDescriptorType, UnsupportedShaderStage };
+    pub fn createDescriptorSetLayouts(self: *const Shader, gc: *const GraphicsContext, allocator: std.mem.Allocator) []vk.DescriptorSetLayout {
+        const uniforms_by_set = std.HashMap(u32, std.ArrayList(Uniform)).init(allocator);
+        defer uniforms_by_set.deinit();
 
-pub fn get_shader_stage(shader_path: std.fs.path) !vk.ShaderStageFlags {
-    const extension = shader_path.extension;
-    return if (std.mem.eql(extension, ".comp")) {
-        vk.ShaderStageFlags { .compute_bit = true };
-    } else if (std.mem.eql(extension, ".vert")) {
-        vk.ShaderStageFlags { .vertex_bit = true };
-    } else if (std.mem.eql(extension, ".frag")) {
-        vk.ShaderStageFlags { .fragment_bit = true };
-    } else {
-        ShaderError.UnexpectedShaderType;
-    };
-}
+        for (self.uniforms) |uniform| { 
+            const entry = uniforms_by_set.getOrPut(uniform.set) catch unreachable;
+            if (!entry.found_exisiting) { entry.value_ptr.* = std.ArrayList(Uniform).init(allocator); }
+            entry.value_ptr.append(uniform);
+        }
+        
+        const descriptor_layouts = allocator.alloc(vk.DescriptorSetLayout, uniforms_by_set.count());
+        for (uniforms_by_set.keyIterator()) |set| {
+            const uniforms = uniforms_by_set.?.get(set);
+            
+            const layout_bindings = allocator.alloc(vk.DescriptorSetLayoutBinding, uniforms.len);
+            defer allocator.free(layout_bindings);
 
-fn reflect_shader_module(spirv_bytes: []const u8) void {
-    var module: spirv_reflect.SpvReflectShaderModule = undefined;
-    const result = spirv_reflect.spvReflectCreateShaderModule(spirv_bytes.len, spirv_bytes.ptr, &module);
-    if (result != spirv_reflect.SPV_REFLECT_RESULT_SUCCESS) { return; }
-    defer spirv_reflect.spvReflectDestroyShaderModule(&module);
-    
-    for (0..module.descriptor_binding_count) |i| {
-        const descriptor_binding = module.descriptor_bindings[i];
-        std.debug.print("{s}: {d} {d}\n", .{ descriptor_binding.name, descriptor_binding.set, descriptor_binding.binding });
+            for (uniforms, layout_bindings) |uniform, *layout_binding| {
+                layout_binding.* = vk.DescriptorSetLayoutBinding {
+                    .descriptor_type = uniform.descriptor_type,
+                    .stage_flags = uniform.stage_flags,
+                    .binding = uniform.binding,
+                    .descriptor_count = 1,
+                };
+            }
+
+            descriptor_layouts.append(gc.vkd.createDescriptorSetLayout(gc.dev, vk.DescriptorSetLayoutCreateInfo {    
+                .binding_count = uniforms.items.len,
+                .p_bindings = layout_bindings.ptr,
+            }, null));
+
+            uniforms.deinit();
+        }
+
+        return descriptor_layouts;
     }
-}
+};
 
 test "can load shader module" {
     const temp = @import("temp");
@@ -171,8 +185,8 @@ test "can load shader module" {
     };
     defer std.testing.allocator.free(compiled_bytes);
 
-    const shader = try Shader.init(std.testing.allocator, &[_]Shader.ShaderCreateInfo{ 
-        Shader.ShaderCreateInfo { .entry_point = "main", .spirv = compiled_bytes } 
+    const shader = try Shader.init(std.testing.allocator, &[_]Shader.CreateInfo{ 
+        Shader.CreateInfo { .entry_point = "main", .spirv = compiled_bytes } 
     });
     defer shader.deinit();
     
