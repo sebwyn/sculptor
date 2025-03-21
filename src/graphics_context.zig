@@ -177,19 +177,28 @@ pub const GraphicsContext = struct {
             .engine_version = vk.makeApiVersion(0, 0, 0, 0),
             .api_version = vk.makeApiVersion(0, 1, 1, 0),
         };
-
-        self.instance = try self.vkb.createInstance(&vk.InstanceCreateInfo{ .flags = if (builtin.os.tag == .macos) .{
+        
+        const flags = if (builtin.os.tag == .macos) .{
             .enumerate_portability_bit_khr = true,
-        } else .{}, .p_application_info = &app_info, .enabled_layer_count = 1, .pp_enabled_layer_names = &validation_layers, .enabled_extension_count = @intCast(instance_extensions.items.len), .pp_enabled_extension_names = @ptrCast(instance_extensions.items), .p_next = &vk.DebugUtilsMessengerCreateInfoEXT{
-            .flags = .{},
-            .message_severity = .{
-                .verbose_bit_ext = true,
-                .warning_bit_ext = true,
-                .error_bit_ext = true,
-            },
-            .message_type = .{
-                .general_bit_ext = true,
-                .validation_bit_ext = true,
+        } else .{};
+
+        self.instance = try self.vkb.createInstance(&vk.InstanceCreateInfo{ 
+            .flags = flags, 
+            .p_application_info = &app_info,
+            .enabled_layer_count = 1, 
+            .pp_enabled_layer_names = &validation_layers,
+            .enabled_extension_count = @intCast(instance_extensions.items.len),
+            .pp_enabled_extension_names = @ptrCast(instance_extensions.items),
+            .p_next = &vk.DebugUtilsMessengerCreateInfoEXT{
+                .flags = .{},
+                .message_severity = .{
+                    .verbose_bit_ext = true,
+                    .warning_bit_ext = true,
+                    .error_bit_ext = true,
+                },
+                .message_type = .{
+                    .general_bit_ext = true,
+                    .validation_bit_ext = true,
                 .performance_bit_ext = true,
             },
             .pfn_user_callback = debugCallback,

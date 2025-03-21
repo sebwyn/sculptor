@@ -121,8 +121,14 @@ const RenderStage = struct {
     depth_attachment: ?vk.ImageView,
     allocator: std.mem.Allocator,
 
+    out_of_date: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, swapchain: *const Swapchain) RenderStage {
+    pub const SubpassType = struct {
+        binding: u32, 
+        subpass_bindings: []const u32,
+    };
+
+    pub fn init(allocator: std.mem.Allocator) RenderStage {
 
         return RenderStage {
             .attachments = attachments,

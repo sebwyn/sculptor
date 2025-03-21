@@ -119,6 +119,10 @@ pub const Shader = struct {
 
         return descriptor_layouts;
     }
+
+    pub fn createDescriptorPoolSizes() []vk.DescriptorPoolSize {
+
+    }
 };
 
 test "can load shader module" {

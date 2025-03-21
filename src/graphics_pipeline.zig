@@ -19,8 +19,6 @@ const GraphicsPipeline = struct {
             .p_set_layouts = descriptor_set_layouts.ptr, 
         }, null);
 
-
-
         GraphicsPipeline {
             .shader = shader,
         };
